@@ -5,6 +5,8 @@ import (
 	"Proyecto1/backend/FileManagement"
 	"fmt"
 	"math/rand"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -93,4 +95,36 @@ func Mkdisk(size int, fit string, unit string, path string) {
 	defer file.Close()
 
 	fmt.Println("======FIN MKDISK======")
+
+}
+
+// Fuction to remove a disk
+func Rmdisk(path string) {
+	fmt.Println("======INICIO RMDISK======")
+	fmt.Println("Path:", path)
+
+	// Check if the file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		fmt.Println("Error: El archivo no existe en la ruta especificada")
+		return
+	}
+
+	// Confirm deletion
+	fmt.Println("¿Está seguro de que desea eliminar el archivo? (yes/no):")
+	var confirmation string
+	fmt.Scanln(&confirmation)
+
+	if strings.ToLower(confirmation) == "yes" {
+		// Remove the file
+		err := os.Remove(path)
+		if err != nil {
+			fmt.Println("Error al eliminar el archivo:", err)
+			return
+		}
+		fmt.Println("Archivo eliminado exitosamente")
+	} else {
+		fmt.Println("Operación cancelada")
+	}
+
+	fmt.Println("======FIN RMDISK======")
 }

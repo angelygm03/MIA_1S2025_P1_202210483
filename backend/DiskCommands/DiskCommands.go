@@ -38,22 +38,23 @@ func Analyze() {
 
 		fmt.Println("Comando: ", command, " - ", "Parametro: ", params)
 
-		AnalyzeCommnad(command, params)
+		AnalyzeCommand(command, params)
 
 		//mkdisk -size=3000 -unit=K -fit=BF -path="/home/angely-gmartinez/Disks/disk1.bin"
 	}
 }
 
-func AnalyzeCommnad(command string, params string) {
+func AnalyzeCommand(command string, params string) {
 	// Check the command
 	if strings.Contains(command, "mkdisk") {
-		fn_mkdisk(params) // Call the function
+		fn_mkdisk(params) // Call the function mkdisk
+	} else if strings.Contains(command, "rmdisk") {
+		fn_rmdisk(params) // Call the function rmdisk
 	} else if strings.Contains(command, "rep") {
 		fmt.Print("COMANDO REP")
 	} else {
-		fmt.Println("Error: Commando invalido o no encontrado")
+		fmt.Println("Error: Comando inválido o no encontrado")
 	}
-
 }
 
 func fn_mkdisk(params string) {
@@ -112,4 +113,40 @@ func fn_mkdisk(params string) {
 	}
 
 	DiskControl.Mkdisk(*size, *fit, *unit, *path)
+}
+
+// Function to remove a disk
+func fn_rmdisk(params string) {
+	// Define flag
+	fs := flag.NewFlagSet("rmdisk", flag.ExitOnError)
+	path := fs.String("path", "", "Ruta")
+
+	// Parse flag
+	fs.Parse(os.Args[1:])
+
+	// Find all the flags
+	matches := re.FindAllStringSubmatch(params, -1)
+
+	// Process the input
+	for _, match := range matches {
+		flagName := match[1]                   // match[1]: Get the flag name: path
+		flagValue := strings.ToLower(match[2]) // match[2]: Get the flag value in lowercase
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		switch flagName {
+		case "path":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag not found")
+		}
+	}
+
+	// Check the path: not empty
+	if *path == "" {
+		fmt.Println("Error: Path is required")
+		return
+	}
+
+	DiskControl.Rmdisk(*path)
 }
