@@ -5,11 +5,65 @@ function App() {
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
 
-  const handleExecute = () => {
-    // Simulación de respuesta del backend
-    setOutput(`Ejecutando: \n${input}`);
+  const handleExecute = async () => {
+    try {
+      const commands = input.trim().split("\n"); // Commands are separated by lines
+      let results = [];
+    
+      for (const command of commands) {
+        const params = command.split(" ");
+        let requestBody = {};
+        let endpoint = "";
+  
+        if (command.startsWith("mkdisk")) {
+          // Get parameters for mkdisk
+          let size = 0, unit = "k", fit = "", path = "";
+          params.forEach(param => {
+            if (param.startsWith("-size=")) size = parseInt(param.split("=")[1]); // Convert to number
+            if (param.startsWith("-unit=")) unit = param.split("=")[1].toLowerCase();
+            if (param.startsWith("-fit=")) fit = param.split("=")[1].toLowerCase();
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, ''); // Remove ""
+          });
+          
+          // Set request body and endpoint for mkdisk
+          requestBody = { size, unit, fit, path };
+          endpoint = "mkdisk";
+  
+        } else if (command.startsWith("rmdisk")) {
+          // Get parameters for rmdisk
+          let path = "";
+          params.forEach(param => {
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+          });
+          
+          // Set request body and endpoint for rmdisk
+          requestBody = { path };
+          endpoint = "rmdisk";
+        } else {
+          results.push(`===================================\nComando no reconocido: ${command}\n===================================\n`);
+          continue;
+        }
+  
+        // Send request to the server
+        const response = await fetch(`http://localhost:8080/${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+  
+        const text = await response.text();
+        results.push(`================================================\nComando: ${command}\nRespuesta: ${text}\n================================================\n`);
+      }
+  
+      // Show results in the output
+      setOutput(results.join("\n"));
+  
+    } catch (error) {
+      setOutput(`Error al ejecutar comandos: ${error.message}`);
+    }
   };
-
+  
+  
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (file) {

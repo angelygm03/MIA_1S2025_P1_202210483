@@ -11,6 +11,7 @@ import (
 func CreateFile(name string) error {
 	// Check if the file exists
 	dir := filepath.Dir(name) // Get the directory
+	fmt.Println("Intentando crear directorio:", dir)
 	// if the directory does not exist, create it
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		fmt.Println("Error creating file dir==", err)
