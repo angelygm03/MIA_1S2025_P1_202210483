@@ -74,6 +74,16 @@ function App() {
         
           requestBody = { path, name, id };
           endpoint = "report";
+        
+        } else  if (command.startsWith("mkfs")) {
+          let id = "", type = "full"; 
+          params.forEach(param => {
+            if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
+            if (param.startsWith("-type=")) type = param.split("=")[1].toLowerCase();
+          });
+        
+          requestBody = { id, type};
+          endpoint = "mkfs";
 
         } else {
           results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
