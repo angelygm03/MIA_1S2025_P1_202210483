@@ -50,8 +50,8 @@ func AnalyzeCommand(command string, params string) {
 		fn_mkdisk(params) // Call the function mkdisk
 	} else if strings.Contains(command, "rmdisk") {
 		fn_rmdisk(params) // Call the function rmdisk
-	} else if strings.Contains(command, "rep") {
-		fmt.Print("COMANDO REP")
+	} else if strings.Contains(command, "fdisk") {
+		fn_fdisk(params) // Call the function fdisk
 	} else {
 		fmt.Println("Error: Comando inválido o no encontrado")
 	}
@@ -94,16 +94,26 @@ func fn_mkdisk(params string) {
 		return
 	}
 
-	// Check the fit: bf, ff, or wf. If not, FF for default
+	// Check the fit: bf, ff, or wf
 	if *fit != "bf" && *fit != "ff" && *fit != "wf" {
 		fmt.Println("Error: Fit must be 'bf', 'ff', or 'wf'")
 		return
 	}
 
-	// Check the unit: k or m. If not m for default
+	//If fit is empty, set it to "ff"
+	if *fit == "" {
+		*fit = "ff"
+	}
+
+	// Check the unit: k or m
 	if *unit != "k" && *unit != "m" {
 		fmt.Println("Error: Unit must be 'k' or 'm'")
 		return
+	}
+
+	//If unit is empty, set it to "m"
+	if *unit == "" {
+		*unit = "m"
 	}
 
 	// Check the path: not empty
@@ -149,4 +159,77 @@ func fn_rmdisk(params string) {
 	}
 
 	DiskControl.Rmdisk(*path)
+}
+
+func fn_fdisk(input string) {
+	fs := flag.NewFlagSet("fdisk", flag.ExitOnError)
+	size := fs.Int("size", 0, "Tamaño")
+	path := fs.String("path", "", "Ruta")
+	name := fs.String("name", "", "Nombre")
+	unit := fs.String("unit", "k", "Unidad")
+	type_ := fs.String("type", "p", "Tipo")
+	fit := fs.String("fit", "wf", "Ajuste")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := strings.ToLower(match[2])
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		switch flagName {
+		case "size", "fit", "unit", "path", "name", "type":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag not found")
+		}
+	}
+
+	if *size <= 0 {
+		fmt.Println("Error: Size must be greater than 0")
+		return
+	}
+
+	if *path == "" {
+		fmt.Println("Error: Path is required")
+		return
+	}
+
+	// If fit is empty, set it to "w"
+	if *fit == "" {
+		*fit = "wf"
+	}
+
+	//Fit must be 'bf', 'ff', or 'ww'
+	if *fit != "bf" && *fit != "ff" && *fit != "wf" {
+		fmt.Println("Error: Fit must be 'bf', 'ff', or 'wf'")
+		return
+	}
+
+	// If unit is empty, set it to "k"
+	if *unit == "" {
+		*unit = "k"
+	}
+
+	//Unit must be 'k', 'm'or 'b'
+	if *unit != "k" && *unit != "m" && *unit != "b" {
+		fmt.Println("Error: Unit must be 'b', 'm' or 'k'")
+		return
+	}
+
+	// If type is empty, set it to "p"
+	if *type_ == "" {
+		*type_ = "p"
+	}
+
+	// Type must be 'p', 'e', or 'l'
+	if *type_ != "p" && *type_ != "e" && *type_ != "l" {
+		fmt.Println("Error: Type must be 'p', 'e', or 'l'")
+		return
+	}
+
+	// Call the function
+	DiskControl.Fdisk(*size, *path, *name, *unit, *type_, *fit)
 }

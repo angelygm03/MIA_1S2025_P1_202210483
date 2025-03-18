@@ -39,6 +39,21 @@ function App() {
           // Set request body and endpoint for rmdisk
           requestBody = { path };
           endpoint = "rmdisk";
+
+        } else if (command.startsWith("fdisk")) {
+          let size = 0, unit = "k", path = "", type = "p", fit= "wf", name = "";
+          params.forEach(param => {
+            if (param.startsWith("-size=")) size = parseInt(param.split("=")[1]);
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-unit=")) unit = param.split("=")[1].toLowerCase();
+            if (param.startsWith("-type=")) type = param.split("=")[1].toLowerCase();
+            if (param.startsWith("-fit="))  fit = param.split("=")[1].toLowerCase();
+          });
+  
+          requestBody = { size, unit, path, type, fit, name};
+          endpoint = "fdisk";
+
         } else {
           results.push(`===================================\nComando no reconocido: ${command}\n===================================\n`);
           continue;
