@@ -53,9 +53,20 @@ function App() {
   
           requestBody = { size, unit, path, type, fit, name};
           endpoint = "fdisk";
+        
+        } else  if (command.startsWith("mount")) {
+            let path = "", name = "";
+            params.forEach(param => {
+              if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+              if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
+            });
+          
+            requestBody = { path, name };
+            endpoint = "mount";
+          
 
         } else {
-          results.push(`===================================\nComando no reconocido: ${command}\n===================================\n`);
+          results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
           continue;
         }
   
@@ -67,7 +78,7 @@ function App() {
         });
   
         const text = await response.text();
-        results.push(`================================================\nComando: ${command}\nRespuesta: ${text}\n================================================\n`);
+        results.push(`===============================================\nComando: ${command}\nRespuesta: ${text}\n===============================================\n`);
       }
   
       // Show results in the output

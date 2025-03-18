@@ -29,6 +29,11 @@ type FDISKRequest struct {
 	Fit  string `json:"fit"`
 }
 
+type MountRequest struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
 // ====== Handlers ======
 func createDisk(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -118,10 +123,36 @@ func createPartition(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Partition created successfully at %s", req.Path)))
 }
 
+func mountPartition(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req MountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para crear partición:", req)
+
+	// Call the function to create the partition
+	DiskControl.Mount(req.Path, req.Name)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Partition mounted successfully at %s", req.Path)))
+}
+
 func main() {
 	http.HandleFunc("/mkdisk", createDisk)
 	http.HandleFunc("/rmdisk", removeDisk)
 	http.HandleFunc("/fdisk", createPartition)
+	http.HandleFunc("/mount", mountPartition)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", nil)

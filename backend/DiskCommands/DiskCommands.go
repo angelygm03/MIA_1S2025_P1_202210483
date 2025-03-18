@@ -52,6 +52,8 @@ func AnalyzeCommand(command string, params string) {
 		fn_rmdisk(params) // Call the function rmdisk
 	} else if strings.Contains(command, "fdisk") {
 		fn_fdisk(params) // Call the function fdisk
+	} else if strings.Contains(command, "mount") {
+		fn_mount(params) // Call the function mount
 	} else {
 		fmt.Println("Error: Comando inválido o no encontrado")
 	}
@@ -232,4 +234,29 @@ func fn_fdisk(input string) {
 
 	// Call the function
 	DiskControl.Fdisk(*size, *path, *name, *unit, *type_, *fit)
+}
+
+func fn_mount(params string) {
+	fs := flag.NewFlagSet("mount", flag.ExitOnError)
+	path := fs.String("path", "", "Ruta")
+	name := fs.String("name", "", "Nombre de la partición")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(params, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := strings.ToLower(match[2])
+		flagValue = strings.Trim(flagValue, "\"")
+		fs.Set(flagName, flagValue)
+	}
+
+	if *path == "" || *name == "" {
+		fmt.Println("Error: Path y Name son obligatorios")
+		return
+	}
+
+	// Convertir el nombre a minúsculas antes de pasarlo al Mount
+	lowercaseName := strings.ToLower(*name)
+	DiskControl.Mount(*path, lowercaseName)
 }
