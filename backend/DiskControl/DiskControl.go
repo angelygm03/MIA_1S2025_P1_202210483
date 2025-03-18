@@ -524,3 +524,8 @@ func getLastDiskID() string {
 func generateDiskID(path string) string {
 	return strings.ToLower(path)
 }
+
+// Function to get the mounted partitions
+func GetMountedPartitions() map[string][]MountedPartition {
+	return mountedPartitions
+}

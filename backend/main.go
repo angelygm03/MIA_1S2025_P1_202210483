@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Proyecto1/backend/DiskCommands"
 	"Proyecto1/backend/DiskControl"
 	"encoding/json"
 	"fmt"
@@ -32,6 +33,13 @@ type FDISKRequest struct {
 type MountRequest struct {
 	Path string `json:"path"`
 	Name string `json:"name"`
+}
+
+type ReportRequest struct {
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Id         string `json:"id"`
+	PathFileLs string `json:"pathFileLs"`
 }
 
 // ====== Handlers ======
@@ -148,11 +156,47 @@ func mountPartition(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Partition mounted successfully at %s", req.Path)))
 }
 
+func generateReport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req ReportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para generar reporte:")
+	fmt.Printf("Name: %s, Path: %s, ID: %s, PathFileLs: %s\n", req.Name, req.Path, req.Id, req.PathFileLs)
+
+	if req.Id == "" {
+		http.Error(w, "Error: 'id' es un parámetro obligatorio", http.StatusBadRequest)
+		return
+	}
+
+	reportCommand := fmt.Sprintf("-name=%s -path=%s -id=%s", req.Name, req.Path, req.Id)
+	if req.PathFileLs != "" {
+		reportCommand += fmt.Sprintf(" -path_file_ls=%s", req.PathFileLs)
+	}
+
+	DiskCommands.Fn_Rep(reportCommand)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Reporte generado exitosamente en %s", req.Path)))
+}
+
 func main() {
 	http.HandleFunc("/mkdisk", createDisk)
 	http.HandleFunc("/rmdisk", removeDisk)
 	http.HandleFunc("/fdisk", createPartition)
 	http.HandleFunc("/mount", mountPartition)
+	http.HandleFunc("/report", generateReport)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", nil)

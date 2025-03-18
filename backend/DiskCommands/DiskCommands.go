@@ -2,10 +2,14 @@ package DiskCommands
 
 import (
 	"Proyecto1/backend/DiskControl"
+	"Proyecto1/backend/DiskStruct"
+	"Proyecto1/backend/FileManagement"
 	"bufio"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -54,6 +58,8 @@ func AnalyzeCommand(command string, params string) {
 		fn_fdisk(params) // Call the function fdisk
 	} else if strings.Contains(command, "mount") {
 		fn_mount(params) // Call the function mount
+	} else if strings.Contains(command, "rep") {
+		Fn_Rep(params) // Call the function rep
 	} else {
 		fmt.Println("Error: Comando inválido o no encontrado")
 	}
@@ -259,4 +265,215 @@ func fn_mount(params string) {
 	// Convertir el nombre a minúsculas antes de pasarlo al Mount
 	lowercaseName := strings.ToLower(*name)
 	DiskControl.Mount(*path, lowercaseName)
+}
+
+func Fn_Rep(input string) {
+	fmt.Println("======Start REP======")
+	fs := flag.NewFlagSet("rep", flag.ExitOnError)
+	name := fs.String("name", "", "Nombre del reporte a generar (mbr, disk, inode, block, bm_inode, bm_block, sb, file, ls)")
+	path := fs.String("path", "", "Ruta donde se generará el reporte")
+	id := fs.String("id", "", "ID de la partición")
+	pathFileLs := fs.String("path_file_ls", "", "Nombre del archivo o carpeta para reportes file o ls")
+
+	matches := re.FindAllStringSubmatch(input, -1)
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := strings.Trim(match[2], "\"")
+
+		switch flagName {
+		case "name", "path", "id", "path_file_ls":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag no encontrada:", flagName)
+			fmt.Println("======FIN REP======")
+		}
+	}
+
+	// Name, path and id are required
+	if *name == "" || *path == "" || *id == "" {
+		fmt.Println("Error: 'name', 'path' y 'id' son parámetros obligatorios.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Verifying if the partition is mounted
+	mounted := false
+	var diskPath string
+	for _, partitions := range DiskControl.GetMountedPartitions() {
+		for _, partition := range partitions {
+			if partition.ID == *id {
+				mounted = true
+				diskPath = partition.Path
+				break
+			}
+		}
+	}
+
+	if !mounted {
+		fmt.Println("Error: La partición con ID", *id, "no está montada.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Creating the reports directory if it doesn't exist
+	reportsDir := filepath.Dir(*path)
+	err := os.MkdirAll(reportsDir, os.ModePerm)
+	if err != nil {
+		fmt.Println("Error al crear la carpeta:", reportsDir)
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	switch *name {
+
+	// ===== MBR REPORT =====
+	case "mbr":
+		// Open the binary file of the mounted disk
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Println("Error: No se pudo abrir el archivo en la ruta:", diskPath)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer file.Close()
+
+		// Read the MBR object from the binary file
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("Error: No se pudo leer el MBR desde el archivo")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read and process the EBRs if there are extended partitions
+		var ebrs []DiskStruct.EBR
+		for i := 0; i < 4; i++ {
+			if string(TempMBR.Partitions[i].Type[:]) == "e" { // Extended partition: e
+				fmt.Println("Partición extendida encontrada: ", string(TempMBR.Partitions[i].Name[:]))
+
+				// First EBR position
+				ebrPosition := TempMBR.Partitions[i].Start
+				ebrCounter := 1
+
+				// Read all the EBRs in the extended partition
+				for ebrPosition != -1 {
+					fmt.Printf("Leyendo EBR en posición: %d\n", ebrPosition)
+					var tempEBR DiskStruct.EBR
+					if err := FileManagement.ReadObject(file, &tempEBR, int64(ebrPosition)); err != nil {
+						fmt.Println("Error: No se pudo leer el EBR desde el archivo")
+						fmt.Println("======FIN REP======")
+						break
+					}
+
+					// Add the EBR to the slice
+					ebrs = append(ebrs, tempEBR)
+					fmt.Printf("EBR %d leído. Start: %d, Size: %d, Next: %d, Name: %s\n", ebrCounter, tempEBR.PartStart, tempEBR.PartSize, tempEBR.PartNext, string(tempEBR.PartName[:]))
+					DiskStruct.PrintEBR(tempEBR)
+
+					// Move to the next EBR
+					ebrPosition = tempEBR.PartNext
+					ebrCounter++
+
+					if ebrPosition == -1 {
+						fmt.Println("No hay más EBRs en esta partición extendida.")
+					}
+				}
+			}
+		}
+
+		// Generate the .dot file of the MBR
+		reportPath := *path
+		if err := FileManagement.GenerateMBRReport(TempMBR, ebrs, reportPath, file); err != nil {
+			fmt.Println("Error al generar el reporte MBR:", err)
+			fmt.Println("======FIN REP======")
+		} else {
+			fmt.Println("Reporte MBR generado exitosamente en:", reportPath)
+
+			dotFile := strings.TrimSuffix(reportPath, filepath.Ext(reportPath)) + ".dot"
+			outputJpg := reportPath
+			cmd := exec.Command("dot", "-Tjpg", dotFile, "-o", outputJpg)
+			err = cmd.Run()
+			if err != nil {
+				fmt.Println("Error al renderizar el archivo .dot a imagen:", err)
+				fmt.Println("======FIN REP======")
+			} else {
+				fmt.Println("Imagen generada exitosamente en:", outputJpg)
+			}
+		}
+
+	// ===== DISK REPORT =====
+	case "disk":
+		// Open the binary file of the mounted disk
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Println("Error: No se pudo abrir el archivo en la ruta:", diskPath)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer file.Close()
+
+		// Read the MBR object from the binary file
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("Error: No se pudo leer el MBR desde el archivo")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read and process the EBRs if there are extended partitions
+		var ebrs []DiskStruct.EBR
+		for i := 0; i < 4; i++ {
+			if string(TempMBR.Partitions[i].Type[:]) == "e" { // Partición extendida
+				ebrPosition := TempMBR.Partitions[i].Start
+				for ebrPosition != -1 {
+					var tempEBR DiskStruct.EBR
+					if err := FileManagement.ReadObject(file, &tempEBR, int64(ebrPosition)); err != nil {
+						break
+					}
+					ebrs = append(ebrs, tempEBR)   // Add the EBR to the slice
+					ebrPosition = tempEBR.PartNext // Move to the next EBR
+				}
+			}
+		}
+
+		// Calculate the total disk size
+		totalDiskSize := TempMBR.MbrSize
+
+		// Generates the .dot file
+		reportPath := *path
+		if err := FileManagement.GenerateDiskReport(TempMBR, ebrs, reportPath, file, totalDiskSize); err != nil {
+			fmt.Println("Error al generar el reporte DISK:", err)
+			fmt.Println("======FIN REP======")
+		} else {
+			fmt.Println("Reporte DISK generado exitosamente en:", reportPath)
+
+			dotFile := strings.TrimSuffix(reportPath, filepath.Ext(reportPath)) + ".dot"
+			outputJpg := reportPath
+			cmd := exec.Command("dot", "-Tjpg", dotFile, "-o", outputJpg)
+			err = cmd.Run()
+			if err != nil {
+				fmt.Println("Error al renderizar el archivo .dot a imagen:", err)
+				fmt.Println("======FIN REP======")
+			} else {
+				fmt.Println("Imagen generada exitosamente en:", outputJpg)
+			}
+		}
+
+	// ===== FILE -LS REPORT =====
+	case "file", "ls":
+		// Parameter 'path_file_ls' is required for these reports
+		if *pathFileLs == "" {
+			fmt.Println("Error: 'path_file_ls' es obligatorio para los reportes 'file' y 'ls'.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		fmt.Println("Generando reporte", *name, "con archivo/carpeta:", *pathFileLs)
+		// ------ TO DO ------
+		// Implement the report generation for 'file' and 'ls'
+
+	default:
+		fmt.Println("Error: Tipo de reporte no válido.")
+		fmt.Println("======FIN REP======")
+	}
 }

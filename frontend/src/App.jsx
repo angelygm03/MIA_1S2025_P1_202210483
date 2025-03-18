@@ -64,6 +64,16 @@ function App() {
             requestBody = { path, name };
             endpoint = "mount";
           
+        } else  if (command.startsWith("rep")) {
+          let path = "", name = "", id = ""; 
+          params.forEach(param => {
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
+          });
+        
+          requestBody = { path, name, id };
+          endpoint = "report";
 
         } else {
           results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
