@@ -64,6 +64,17 @@ function App() {
             requestBody = { path, name };
             endpoint = "mount";
           
+        } else  if (command.startsWith("login")) {
+          let user = "", password = "", id="";
+          params.forEach(param => {
+            if (param.startsWith("-user=")) user = param.split("=")[1];
+            if (param.startsWith("-password=")) password = param.split("=")[1];
+            if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
+          });
+        
+          requestBody = { user, password, id };
+          endpoint = "login";
+          
         } else  if (command.startsWith("rep")) {
           let path = "", name = "", id = ""; 
           params.forEach(param => {

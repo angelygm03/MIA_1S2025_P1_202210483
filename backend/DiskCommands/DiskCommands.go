@@ -4,6 +4,7 @@ import (
 	"Proyecto1/backend/DiskControl"
 	"Proyecto1/backend/DiskStruct"
 	"Proyecto1/backend/FileManagement"
+	"Proyecto1/backend/UserManagement"
 	"bufio"
 	"flag"
 	"fmt"
@@ -60,6 +61,8 @@ func AnalyzeCommand(command string, params string) {
 		fn_mount(params) // Call the function mount
 	} else if strings.Contains(command, "rep") {
 		Fn_Rep(params) // Call the function rep
+	} else if strings.Contains(command, "login") {
+		fn_login(params) // Call the function login
 	} else {
 		fmt.Println("Error: Comando inválido o no encontrado")
 	}
@@ -476,4 +479,33 @@ func Fn_Rep(input string) {
 		fmt.Println("Error: Tipo de reporte no válido.")
 		fmt.Println("======FIN REP======")
 	}
+}
+
+func fn_login(input string) {
+	fmt.Println("======Start LOGIN======")
+	fs := flag.NewFlagSet("login", flag.ExitOnError)
+	user := fs.String("user", "", "Usuario")
+	pass := fs.String("pass", "", "Contraseña")
+	id := fs.String("id", "", "Id")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := match[2]
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		switch flagName {
+		case "user", "pass", "id":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag not found")
+			fmt.Println("======FIN LOGIN======")
+		}
+	}
+
+	UserManagement.Login(*user, *pass, *id)
+
 }

@@ -14,10 +14,11 @@ import (
 
 // Structure for mounted partitions
 type MountedPartition struct {
-	Path   string
-	Name   string
-	ID     string
-	Status byte // 0: unmounted, 1: mounted
+	Path     string
+	Name     string
+	ID       string
+	Status   byte // 0: unmounted, 1: mounted
+	LoggedIn bool //true: logged in, false: not logged in
 }
 
 // Map to store the mounted partitions by disk
@@ -397,8 +398,12 @@ func PrintMountedPartitions() {
 	for diskID, partitions := range mountedPartitions {
 		fmt.Printf("Disco ID: %s\n", diskID)
 		for _, partition := range partitions {
-			fmt.Printf(" - Partición Name: %s, ID: %s, Path: %s, Status: %c\n",
-				partition.Name, partition.ID, partition.Path, partition.Status)
+			loginStatus := "No"
+			if partition.LoggedIn {
+				loginStatus = "Sí"
+			}
+			fmt.Printf(" - Partición Name: %s, ID: %s, Path: %s, Status: %c, LoggedIn: %s\n",
+				partition.Name, partition.ID, partition.Path, partition.Status, loginStatus)
 		}
 	}
 	fmt.Println("")
@@ -528,4 +533,18 @@ func generateDiskID(path string) string {
 // Function to get the mounted partitions
 func GetMountedPartitions() map[string][]MountedPartition {
 	return mountedPartitions
+}
+
+// Mark a partition as logged in
+func MarkPartitionAsLoggedIn(id string) {
+	for diskID, partitions := range mountedPartitions {
+		for i, partition := range partitions {
+			if partition.ID == id {
+				mountedPartitions[diskID][i].LoggedIn = true
+				fmt.Printf("Partición con ID %s marcada como logueada.\n", id)
+				return
+			}
+		}
+	}
+	fmt.Printf("No se encontró la partición con ID %s para marcarla como logueada.\n", id)
 }

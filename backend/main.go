@@ -4,6 +4,7 @@ import (
 	"Proyecto1/backend/DiskCommands"
 	"Proyecto1/backend/DiskControl"
 	"Proyecto1/backend/FileSystem"
+	"Proyecto1/backend/UserManagement"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -46,6 +47,12 @@ type ReportRequest struct {
 type MkfsRequest struct {
 	Id   string `json:"id"`
 	Type string `json:"type"`
+}
+
+type LoginRequest struct {
+	User     string `json:"user"`
+	Password string `json:"type"`
+	Id       string `json:"id"`
 }
 
 // ====== Handlers ======
@@ -222,6 +229,31 @@ func formatMkfs(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Partition formatted successfully with id %s", req.Id)))
 }
 
+func loginUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para loggear usuario:", req)
+
+	// Call the function to login the user
+	UserManagement.Login(req.User, req.Password, req.Id)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("User logged in successfully with id %s", req.Id)))
+}
+
 func main() {
 	http.HandleFunc("/mkdisk", createDisk)
 	http.HandleFunc("/rmdisk", removeDisk)
@@ -229,6 +261,7 @@ func main() {
 	http.HandleFunc("/mount", mountPartition)
 	http.HandleFunc("/report", generateReport)
 	http.HandleFunc("/mkfs", formatMkfs)
+	http.HandleFunc("/login", loginUser)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
