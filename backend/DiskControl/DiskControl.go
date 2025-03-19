@@ -548,3 +548,17 @@ func MarkPartitionAsLoggedIn(id string) {
 	}
 	fmt.Printf("No se encontró la partición con ID %s para marcarla como logueada.\n", id)
 }
+
+// Mark a partition as logged out
+func MarkPartitionAsLoggedOut(id string) {
+	for diskID, partitions := range mountedPartitions {
+		for i, partition := range partitions {
+			if partition.ID == id {
+				mountedPartitions[diskID][i].LoggedIn = false
+				fmt.Printf("Partición con ID %s marcada con sesión cerrada.\n", id)
+				return
+			}
+		}
+	}
+	fmt.Printf("No se encontró la partición con ID %s para marcarla como deslogueada.\n", id)
+}

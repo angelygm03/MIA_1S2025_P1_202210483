@@ -254,6 +254,25 @@ func loginUser(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("User logged in successfully with id %s", req.Id)))
 }
 
+func logoutUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para desloguear usuario")
+
+	// Call the function to logout the user
+	UserManagement.Logout()
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("User logged out successfully"))
+}
+
 func main() {
 	http.HandleFunc("/mkdisk", createDisk)
 	http.HandleFunc("/rmdisk", removeDisk)
@@ -262,6 +281,7 @@ func main() {
 	http.HandleFunc("/report", generateReport)
 	http.HandleFunc("/mkfs", formatMkfs)
 	http.HandleFunc("/login", loginUser)
+	http.HandleFunc("/logout", logoutUser)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", nil)

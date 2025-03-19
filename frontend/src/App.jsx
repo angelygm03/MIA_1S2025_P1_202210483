@@ -95,6 +95,10 @@ function App() {
         
           requestBody = { id, type};
           endpoint = "mkfs";
+        
+        } else if (command.startsWith("logout")) {
+          requestBody = {}; 
+          endpoint = "logout";      
 
         } else {
           results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);

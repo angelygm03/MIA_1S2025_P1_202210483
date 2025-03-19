@@ -220,6 +220,43 @@ func SearchInodeByPath(StepsPath []string, Inode DiskStruct.Inode, file *os.File
 	return 0
 }
 
+// Logout function
+func Logout() {
+	fmt.Println("====== Start LOGOUT ======")
+
+	// Get the mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var sessionActive bool
+	var activePartitionID string
+
+	// Verify if there is an active session
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn {
+				sessionActive = true // There is an active session
+				activePartitionID = partition.ID
+				break
+			}
+		}
+		if sessionActive {
+			break
+		}
+	}
+
+	// No logout if there is no active session
+	if !sessionActive {
+		fmt.Println("Error: No hay ninguna sesión activa.")
+		fmt.Println("====== End LOGOUT ======")
+		return
+	}
+
+	// Logout the active session
+	DiskControl.MarkPartitionAsLoggedOut(activePartitionID)
+	fmt.Println("Sesión cerrada con éxito en la partición:", activePartitionID)
+
+	fmt.Println("====== End LOGOUT ======")
+}
+
 // Get the data from an Inode
 func GetInodeFileData(Inode DiskStruct.Inode, file *os.File, tempSuperblock DiskStruct.Superblock) string {
 	fmt.Println("======Start CONTENIDO DEL BLOQUE======")
