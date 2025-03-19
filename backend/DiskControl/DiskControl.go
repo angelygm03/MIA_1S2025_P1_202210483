@@ -532,6 +532,13 @@ func generateDiskID(path string) string {
 
 // Function to get the mounted partitions
 func GetMountedPartitions() map[string][]MountedPartition {
+	fmt.Println("Devolviendo particiones montadas...")
+	for diskID, partitions := range mountedPartitions {
+		fmt.Printf("Disco: %s\n", diskID)
+		for _, partition := range partitions {
+			fmt.Printf(" - ID: %s, Nombre: %s, Estado: %d\n", partition.ID, partition.Name, partition.Status)
+		}
+	}
 	return mountedPartitions
 }
 

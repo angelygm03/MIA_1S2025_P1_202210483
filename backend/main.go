@@ -55,6 +55,22 @@ type LoginRequest struct {
 	Id       string `json:"id"`
 }
 
+// ====== CORS ======
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ====== Handlers ======
 func createDisk(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -273,16 +289,42 @@ func logoutUser(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("User logged out successfully"))
 }
 
+func getMountedPartitionsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mountedPartitions := DiskControl.GetMountedPartitions()
+
+	// Convert the data to JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(mountedPartitions); err != nil {
+		http.Error(w, "Error al generar JSON", http.StatusInternalServerError)
+	}
+}
+
 func main() {
-	http.HandleFunc("/mkdisk", createDisk)
-	http.HandleFunc("/rmdisk", removeDisk)
-	http.HandleFunc("/fdisk", createPartition)
-	http.HandleFunc("/mount", mountPartition)
-	http.HandleFunc("/report", generateReport)
-	http.HandleFunc("/mkfs", formatMkfs)
-	http.HandleFunc("/login", loginUser)
-	http.HandleFunc("/logout", logoutUser)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mkdisk", createDisk)
+	mux.HandleFunc("/rmdisk", removeDisk)
+	mux.HandleFunc("/fdisk", createPartition)
+	mux.HandleFunc("/mount", mountPartition)
+	mux.HandleFunc("/report", generateReport)
+	mux.HandleFunc("/mkfs", formatMkfs)
+	mux.HandleFunc("/login", loginUser)
+	mux.HandleFunc("/logout", logoutUser)
+	mux.HandleFunc("/list-mounted", getMountedPartitionsHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", enableCORS(mux))
 }

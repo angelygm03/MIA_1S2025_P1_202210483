@@ -14,8 +14,50 @@ function App() {
         const params = command.split(" ");
         let requestBody = {};
         let endpoint = "";
-  
-        if (command.startsWith("mkdisk")) {
+
+        if (command.trim().toLowerCase() === "mounted") {
+          try {
+            const response = await fetch(`http://localhost:8080/list-mounted`, {
+              method: "GET",
+              headers: { "Content-Type": "application/json" },
+            });
+
+            if (!response.ok) {
+              throw new Error(`Error del servidor: ${response.status} ${response.statusText}`);
+            }
+
+            const partitions = await response.json();
+
+            let partitionList = "Particiones montadas:\n";
+
+            for (const [disk, parts] of Object.entries(partitions)) {
+              partitionList += `Disco: ${disk}\n`;
+              parts.forEach((part) => {
+                partitionList += `- Nombre: ${part.Name}, ID: ${part.ID}\n`;
+              });
+            }
+
+            console.log("Lista de particiones procesada:", partitionList);
+
+            if (!results.some((res) => res.includes("Particiones montadas"))) {
+              results.push(`===============================================\nComando: ${command}\n${partitionList}===============================================\n`);
+            }
+          } catch (error) {
+            console.error("Error al ejecutar el comando 'mounted':", error);
+            results.push(`Error al obtener particiones montadas: ${error.message}`);
+          }
+
+        } else if (command.startsWith("mount ")) {
+          let path = "", name = "";
+          params.forEach(param => {
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
+          });
+
+          requestBody = { path, name };
+          endpoint = "mount";
+
+        } else if (command.startsWith("mkdisk")) {
           // Get parameters for mkdisk
           let size = 0, unit = "k", fit = "", path = "";
           params.forEach(param => {
@@ -28,7 +70,7 @@ function App() {
           // Set request body and endpoint for mkdisk
           requestBody = { size, unit, fit, path };
           endpoint = "mkdisk";
-  
+
         } else if (command.startsWith("rmdisk")) {
           // Get parameters for rmdisk
           let path = "";
@@ -54,17 +96,7 @@ function App() {
           requestBody = { size, unit, path, type, fit, name};
           endpoint = "fdisk";
         
-        } else  if (command.startsWith("mount")) {
-            let path = "", name = "";
-            params.forEach(param => {
-              if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
-              if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
-            });
-          
-            requestBody = { path, name };
-            endpoint = "mount";
-          
-        } else  if (command.startsWith("login")) {
+        } else if (command.startsWith("login")) {
           let user = "", password = "", id="";
           params.forEach(param => {
             if (param.startsWith("-user=")) user = param.split("=")[1];
@@ -75,7 +107,7 @@ function App() {
           requestBody = { user, password, id };
           endpoint = "login";
           
-        } else  if (command.startsWith("rep")) {
+        } else if (command.startsWith("rep")) {
           let path = "", name = "", id = ""; 
           params.forEach(param => {
             if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
@@ -86,7 +118,7 @@ function App() {
           requestBody = { path, name, id };
           endpoint = "report";
         
-        } else  if (command.startsWith("mkfs")) {
+        } else if (command.startsWith("mkfs")) {
           let id = "", type = "full"; 
           params.forEach(param => {
             if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
@@ -98,32 +130,35 @@ function App() {
         
         } else if (command.startsWith("logout")) {
           requestBody = {}; 
-          endpoint = "logout";      
-
+          endpoint = "logout";     
+        
         } else {
           results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
           continue;
         }
   
-        // Send request to the server
-        const response = await fetch(`http://localhost:8080/${endpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        });
-  
-        const text = await response.text();
-        results.push(`===============================================\nComando: ${command}\nRespuesta: ${text}\n===============================================\n`);
+        if (endpoint) {
+          const method = Object.keys(requestBody).length > 0 ? "POST" : "GET"; // If body is not empty, use POST, otherwise GET
+          const options = {
+            method,
+            headers: { "Content-Type": "application/json" },
+            ...(method === "POST" && { body: JSON.stringify(requestBody) }) // Add body if POST
+          };
+        
+          const response = await fetch(`http://localhost:8080/${endpoint}`, options);
+        
+          const text = await response.text();
+          results.push(`===============================================\nComando: ${command}\nRespuesta: ${text}\n===============================================\n`);
+        }
       }
-  
+
       // Show results in the output
       setOutput(results.join("\n"));
-  
+
     } catch (error) {
       setOutput(`Error al ejecutar comandos: ${error.message}`);
     }
   };
-  
   
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
