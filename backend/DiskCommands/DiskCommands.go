@@ -331,6 +331,17 @@ func Fn_Rep(input string) {
 
 	// ===== MBR REPORT =====
 	case "mbr":
+		// Create the directory if it doesn't exist
+		dir := filepath.Dir(*path)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755) // Crear el directorio con permisos 0755
+			if err != nil {
+				fmt.Printf("Error al crear el directorio: %v\n", err)
+				fmt.Println("======FIN REP======")
+				return
+			}
+		}
+
 		// Open the binary file of the mounted disk
 		file, err := FileManagement.OpenFile(diskPath)
 		if err != nil {
@@ -406,6 +417,15 @@ func Fn_Rep(input string) {
 
 	// ===== DISK REPORT =====
 	case "disk":
+		dir := filepath.Dir(*path)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755) // Crear el directorio con permisos 0755
+			if err != nil {
+				fmt.Printf("Error al crear el directorio: %v\n", err)
+				fmt.Println("======FIN REP======")
+				return
+			}
+		}
 		// Open the binary file of the mounted disk
 		file, err := FileManagement.OpenFile(diskPath)
 		if err != nil {
@@ -461,6 +481,128 @@ func Fn_Rep(input string) {
 				fmt.Println("Imagen generada exitosamente en:", outputJpg)
 			}
 		}
+	case "bm_inode":
+		dir := filepath.Dir(*path)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755)
+			if err != nil {
+				fmt.Printf("Error al crear el directorio: %v\n", err)
+				fmt.Println("======FIN REP======")
+				return
+			}
+		}
+
+		// Verify if the partition is mounted
+		mounted := false
+		var diskPath string
+		for _, partitions := range DiskControl.GetMountedPartitions() {
+			for _, partition := range partitions {
+				if partition.ID == *id {
+					mounted = true
+					diskPath = partition.Path
+					break
+				}
+			}
+			if mounted {
+				break
+			}
+		}
+
+		if !mounted {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Open the binary file of the mounted disk
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer file.Close()
+
+		// Read the MBR object from the bin file
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("No se pudo leer el MBR desde el archivo.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Find the partition with the given ID
+		var index int = -1
+		for i := 0; i < 4; i++ {
+			if TempMBR.Partitions[i].Size != 0 {
+				if strings.Contains(string(TempMBR.Partitions[i].Id[:]), *id) {
+					if TempMBR.Partitions[i].Status[0] == '1' {
+						index = i
+					} else {
+						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
+						fmt.Println("======FIN REP======")
+						return
+					}
+					break
+				}
+			}
+		}
+
+		if index == -1 {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read the SuperBlock
+		var TemporalSuperBloque DiskStruct.Superblock
+		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
+			fmt.Println("Error al leer el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Check the values of the SuperBlock
+		if TemporalSuperBloque.S_inodes_count <= 0 || TemporalSuperBloque.S_bm_inode_start <= 0 {
+			fmt.Println("Valores inválidos en el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read the bitmap of inodes
+		BitMapInode := make([]byte, TemporalSuperBloque.S_inodes_count)
+		if _, err := file.ReadAt(BitMapInode, int64(TemporalSuperBloque.S_bm_inode_start)); err != nil {
+			fmt.Println("No se pudo leer el bitmap de inodos:", err)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Create the report file
+		SalidaArchivo, err := os.Create(*path)
+		if err != nil {
+			fmt.Println("No se pudo crear el archivo de reporte:", err)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Close the file
+		defer SalidaArchivo.Close()
+
+		// Write the bitmap of inodes to the report file
+		for i, bit := range BitMapInode {
+			if bit != 0 && bit != 1 {
+				fmt.Printf("Advertencia: Valor inesperado en el bitmap de inodos: %d\n", bit)
+				fmt.Println("======FIN REP======")
+				continue
+			}
+			if i > 0 && i%20 == 0 {
+				fmt.Fprintln(SalidaArchivo)
+			}
+			fmt.Fprintf(SalidaArchivo, "%d ", bit)
+		}
+
+		fmt.Printf("Reporte de BITMAP INODE de la partición:%s generado con éxito en la ruta: %s\n", *id, *path)
+		fmt.Println("======FIN REP======")
 
 	// ===== FILE -LS REPORT =====
 	case "file", "ls":
