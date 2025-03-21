@@ -6,6 +6,7 @@ import (
 	"Proyecto1/backend/FileManagement"
 	"Proyecto1/backend/UserManagement"
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -331,7 +332,7 @@ func Fn_Rep(input string) {
 
 	// ===== MBR REPORT =====
 	case "mbr":
-		// Create the directory if it doesn't exist
+		// Crear el directorio si no existe
 		dir := filepath.Dir(*path)
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			err = os.MkdirAll(dir, 0755) // Crear el directorio con permisos 0755
@@ -342,7 +343,7 @@ func Fn_Rep(input string) {
 			}
 		}
 
-		// Open the binary file of the mounted disk
+		// Abrir el archivo binario del disco montado
 		file, err := FileManagement.OpenFile(diskPath)
 		if err != nil {
 			fmt.Println("Error: No se pudo abrir el archivo en la ruta:", diskPath)
@@ -351,7 +352,7 @@ func Fn_Rep(input string) {
 		}
 		defer file.Close()
 
-		// Read the MBR object from the binary file
+		// Leer el objeto MBR desde el archivo binario
 		var TempMBR DiskStruct.MRB
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("Error: No se pudo leer el MBR desde el archivo")
@@ -359,61 +360,88 @@ func Fn_Rep(input string) {
 			return
 		}
 
-		// Read and process the EBRs if there are extended partitions
-		var ebrs []DiskStruct.EBR
-		for i := 0; i < 4; i++ {
-			if string(TempMBR.Partitions[i].Type[:]) == "e" { // Extended partition: e
-				fmt.Println("Partición extendida encontrada: ", string(TempMBR.Partitions[i].Name[:]))
+		// Content of dot file
+		var dot bytes.Buffer
+		fmt.Fprintln(&dot, "digraph G {")
+		fmt.Fprintln(&dot, "node [shape=plaintext];")
+		fmt.Fprintln(&dot, "fontname=\"Courier New\";")
+		fmt.Fprintln(&dot, "mbrTable [label=<")
+		fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+		fmt.Fprintln(&dot, "<tr><td bgcolor=\"Mediumslateblue\" colspan='2'>MBR</td></tr>")
+		fmt.Fprintf(&dot, "<tr><td>Tamaño</td><td>%d</td></tr>\n", TempMBR.MbrSize)
+		fmt.Fprintf(&dot, "<tr><td>Fecha De Creación</td><td>%s</td></tr>\n", string(TempMBR.CreationDate[:]))
+		fmt.Fprintf(&dot, "<tr><td>Ajuste</td><td>%s</td></tr>\n", string(TempMBR.Fit[:]))
+		fmt.Fprintf(&dot, "<tr><td>Signature</td><td>%d</td></tr>\n", TempMBR.Signature)
 
-				// First EBR position
-				ebrPosition := TempMBR.Partitions[i].Start
-				ebrCounter := 1
+		// Add details of each partition
+		for i, Particion := range TempMBR.Partitions {
+			if Particion.Size != 0 {
+				fmt.Fprintf(&dot, "<tr><td colspan='2' bgcolor='Slategray'>Partición %d</td></tr>\n", i+1)
+				fmt.Fprintf(&dot, "<tr><td>Estado</td><td>%s</td></tr>\n", string(Particion.Status[:]))
+				fmt.Fprintf(&dot, "<tr><td>Tipo</td><td>%s</td></tr>\n", string(Particion.Type[:]))
+				fmt.Fprintf(&dot, "<tr><td>Ajuste</td><td>%s</td></tr>\n", string(Particion.Fit[:]))
+				fmt.Fprintf(&dot, "<tr><td>Inicio</td><td>%d</td></tr>\n", Particion.Start)
+				fmt.Fprintf(&dot, "<tr><td>Tamaño</td><td>%d</td></tr>\n", Particion.Size)
+				fmt.Fprintf(&dot, "<tr><td>Nombre</td><td>%s</td></tr>\n", strings.Trim(string(Particion.Name[:]), "\x00"))
 
-				// Read all the EBRs in the extended partition
-				for ebrPosition != -1 {
-					fmt.Printf("Leyendo EBR en posición: %d\n", ebrPosition)
-					var tempEBR DiskStruct.EBR
-					if err := FileManagement.ReadObject(file, &tempEBR, int64(ebrPosition)); err != nil {
-						fmt.Println("Error: No se pudo leer el EBR desde el archivo")
+				// If it's an extended partition, read the EBRs
+				if Particion.Type[0] == 'e' {
+					var EBR DiskStruct.EBR
+					if err := FileManagement.ReadObject(file, &EBR, int64(Particion.Start)); err != nil {
+						fmt.Println("Error al leer el EBR desde el archivo")
 						fmt.Println("======FIN REP======")
-						break
+						return
 					}
+					if EBR.PartSize != 0 {
+						fmt.Fprintln(&dot, "<tr><td colspan='2' bgcolor='Lightcoral'>EBRs</td></tr>")
+						for {
+							fmt.Fprintf(&dot, "<tr><td bgcolor='LightPink'>Nombre</td><td bgcolor='LightPink'>%s</td></tr>\n", strings.Trim(string(EBR.PartName[:]), "\x00"))
+							fmt.Fprintf(&dot, "<tr><td>Tipo</td><td>%s</td></tr>\n", "l")
+							fmt.Fprintf(&dot, "<tr><td>Ajuste</td><td>%c</td></tr>\n", EBR.PartFit)
+							fmt.Fprintf(&dot, "<tr><td>Inicio</td><td>%d</td></tr>\n", EBR.PartStart)
+							fmt.Fprintf(&dot, "<tr><td>Tamaño</td><td>%d</td></tr>\n", EBR.PartSize)
+							fmt.Fprintf(&dot, "<tr><td>Siguiente</td><td>%d</td></tr>\n", EBR.PartNext)
 
-					// Add the EBR to the slice
-					ebrs = append(ebrs, tempEBR)
-					fmt.Printf("EBR %d leído. Start: %d, Size: %d, Next: %d, Name: %s\n", ebrCounter, tempEBR.PartStart, tempEBR.PartSize, tempEBR.PartNext, string(tempEBR.PartName[:]))
-					DiskStruct.PrintEBR(tempEBR)
-
-					// Move to the next EBR
-					ebrPosition = tempEBR.PartNext
-					ebrCounter++
-
-					if ebrPosition == -1 {
-						fmt.Println("No hay más EBRs en esta partición extendida.")
+							if EBR.PartNext == -1 {
+								break
+							}
+							if err := FileManagement.ReadObject(file, &EBR, int64(EBR.PartNext)); err != nil {
+								fmt.Println("Error al leer el siguiente EBR")
+								fmt.Println("======FIN REP======")
+								return
+							}
+						}
 					}
 				}
 			}
 		}
 
-		// Generate the .dot file of the MBR
-		reportPath := *path
-		if err := FileManagement.GenerateMBRReport(TempMBR, ebrs, reportPath, file); err != nil {
-			fmt.Println("Error al generar el reporte MBR:", err)
-			fmt.Println("======FIN REP======")
-		} else {
-			fmt.Println("Reporte MBR generado exitosamente en:", reportPath)
+		fmt.Fprintln(&dot, "</table>")
+		fmt.Fprintln(&dot, ">];")
+		fmt.Fprintln(&dot, "}")
 
-			dotFile := strings.TrimSuffix(reportPath, filepath.Ext(reportPath)) + ".dot"
-			outputJpg := reportPath
-			cmd := exec.Command("dot", "-Tjpg", dotFile, "-o", outputJpg)
-			err = cmd.Run()
-			if err != nil {
-				fmt.Println("Error al renderizar el archivo .dot a imagen:", err)
-				fmt.Println("======FIN REP======")
-			} else {
-				fmt.Println("Imagen generada exitosamente en:", outputJpg)
-			}
+		// Save dot file
+		dotFilePath := strings.TrimSuffix(*path, filepath.Ext(*path)) + ".dot"
+		err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
+		if err != nil {
+			fmt.Println("Error al escribir el archivo DOT.")
+			fmt.Println("======FIN REP======")
+			return
 		}
+
+		// Generate the report
+		cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", *path)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+		if err != nil {
+			fmt.Println("Error al ejecutar Graphviz.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		fmt.Printf("Reporte MBR generado con éxito en la ruta: %s\n", *path)
+		fmt.Println("======FIN REP======")
 
 	// ===== DISK REPORT =====
 	case "disk":
@@ -603,6 +631,375 @@ func Fn_Rep(input string) {
 
 		fmt.Printf("Reporte de BITMAP INODE de la partición:%s generado con éxito en la ruta: %s\n", *id, *path)
 		fmt.Println("======FIN REP======")
+
+	case "bm_block":
+		dir := filepath.Dir(*path)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755)
+			if err != nil {
+				fmt.Printf("Error al crear el directorio: %v\n", err)
+				fmt.Println("======FIN REP======")
+				return
+			}
+		}
+
+		// Verify if the partition is mounted
+		mounted := false
+		var diskPath string
+		for _, partitions := range DiskControl.GetMountedPartitions() {
+			for _, partition := range partitions {
+				if partition.ID == *id {
+					mounted = true
+					diskPath = partition.Path
+					break
+				}
+			}
+			if mounted {
+				break
+			}
+		}
+
+		if !mounted {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Open bin file of the mounted disk
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer file.Close()
+
+		// Read the MBR object from the bin file
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("No se pudo leer el MBR desde el archivo.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Find the partition with the given ID
+		var index int = -1
+		for i := 0; i < 4; i++ {
+			if TempMBR.Partitions[i].Size != 0 {
+				if strings.Contains(string(TempMBR.Partitions[i].Id[:]), *id) {
+					if TempMBR.Partitions[i].Status[0] == '1' {
+						index = i
+					} else {
+						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
+						fmt.Println("======FIN REP======")
+						return
+					}
+					break
+				}
+			}
+		}
+
+		if index == -1 {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read the SuperBlock
+		var TemporalSuperBloque DiskStruct.Superblock
+		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
+			fmt.Println("Error al leer el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read the bitmap of blocks
+		BitMapBlock := make([]byte, TemporalSuperBloque.S_blocks_count)
+		if _, err := file.ReadAt(BitMapBlock, int64(TemporalSuperBloque.S_bm_block_start)); err != nil {
+			fmt.Println("No se pudo leer el bitmap de bloques:", err)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Create the report file
+		SalidaArchivo, err := os.Create(*path)
+		if err != nil {
+			fmt.Println("No se pudo crear el archivo de reporte:", err)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer SalidaArchivo.Close()
+
+		// Write the bitmap of blocks to the report file
+		for i, bit := range BitMapBlock {
+			if i > 0 && i%20 == 0 {
+				fmt.Fprintln(SalidaArchivo)
+			}
+			fmt.Fprintf(SalidaArchivo, "%d ", bit)
+		}
+
+		fmt.Printf("Reporte de la partición:%s generado con éxito en la ruta: %s\n", *id, *path)
+		fmt.Println("======FIN REP======")
+
+	case "inode":
+		// Verify if the partition is mounted
+		mounted := false
+		var diskPath string
+		for _, partitions := range DiskControl.GetMountedPartitions() {
+			for _, partition := range partitions {
+				if partition.ID == *id {
+					mounted = true
+					diskPath = partition.Path
+					break
+				}
+			}
+			if mounted {
+				break
+			}
+		}
+
+		if !mounted {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Open bin file
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer file.Close()
+
+		// read the MBR
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("No se pudo leer el MBR desde el archivo.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Find the partition with the given ID
+		var index int = -1
+		for i := 0; i < 4; i++ {
+			if TempMBR.Partitions[i].Size != 0 {
+				if strings.Contains(string(TempMBR.Partitions[i].Id[:]), *id) {
+					if TempMBR.Partitions[i].Status[0] == '1' {
+						index = i
+					} else {
+						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
+						fmt.Println("======FIN REP======")
+						return
+					}
+					break
+				}
+			}
+		}
+
+		if index == -1 {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read the SuperBlock
+		var TemporalSuperBloque DiskStruct.Superblock
+		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
+			fmt.Println("Error al leer el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Content of the dot file
+		var dot bytes.Buffer
+		fmt.Fprintln(&dot, "digraph G {")
+		fmt.Fprintln(&dot, "node [shape=none];")
+		fmt.Fprintln(&dot, "fontname=\"Courier New\";")
+
+		// Read the inodes
+		for i := 0; i < int(TemporalSuperBloque.S_inodes_count); i++ {
+			var inode DiskStruct.Inode
+			offset := int64(TemporalSuperBloque.S_inode_start) + int64(i)*int64(TemporalSuperBloque.S_inode_size)
+			if err := FileManagement.ReadObject(file, &inode, offset); err != nil {
+				fmt.Println("Error al leer el inodo:", err)
+				fmt.Println("======FIN REP======")
+				continue
+			}
+
+			// Add the inode to the DOT file
+			if inode.I_size > 0 {
+				fmt.Fprintf(&dot, "inode%d [label=<\n", i)
+				fmt.Fprintf(&dot, "<table border='0' cellborder='1' cellspacing='0' cellpadding='10'>\n")
+				fmt.Fprintf(&dot, "<tr><td colspan='2' bgcolor='lightgreen'>Inode %d</td></tr>\n", i)
+				fmt.Fprintf(&dot, "<tr><td>UID</td><td>%d</td></tr>\n", inode.I_uid)
+				fmt.Fprintf(&dot, "<tr><td>GID</td><td>%d</td></tr>\n", inode.I_gid)
+				fmt.Fprintf(&dot, "<tr><td>Size</td><td>%d</td></tr>\n", inode.I_size)
+				fmt.Fprintf(&dot, "<tr><td>ATime</td><td>%s</td></tr>\n", string(inode.I_atime[:]))
+				fmt.Fprintf(&dot, "<tr><td>CTime</td><td>%s</td></tr>\n", string(inode.I_ctime[:]))
+				fmt.Fprintf(&dot, "<tr><td>MTime</td><td>%s</td></tr>\n", string(inode.I_mtime[:]))
+				fmt.Fprintf(&dot, "<tr><td>Blocks</td><td>%v</td></tr>\n", inode.I_block)
+				fmt.Fprintf(&dot, "<tr><td>Perms</td><td>%s</td></tr>\n", string(inode.I_perm[:]))
+				fmt.Fprintf(&dot, "</table>\n")
+				fmt.Fprintf(&dot, " >];\n")
+			}
+		}
+		fmt.Fprintln(&dot, "}")
+
+		// Save the dot file
+		dotFilePath := strings.TrimSuffix(*path, filepath.Ext(*path)) + ".dot"
+		err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
+		if err != nil {
+			fmt.Println("Error al escribir el archivo DOT.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Create the directory if it doesn't exist
+		dir := filepath.Dir(*path)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755)
+			if err != nil {
+				fmt.Printf("Error al crear el directorio: %v\n", err)
+				fmt.Println("======FIN REP======")
+				return
+			}
+		}
+
+		// Generate the image
+		cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", *path)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+		if err != nil {
+			fmt.Println("Error al ejecutar Graphviz.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		fmt.Printf("Reporte de INODE de la partición:%s generado con éxito en la ruta: %s\n", *id, *path)
+		fmt.Println("======FIN REP======")
+
+	/*case "block":
+	mounted := false
+	var diskPath string
+	for _, partitions := range DiskControl.GetMountedPartitions() {
+		for _, partition := range partitions {
+			if partition.ID == *id {
+				mounted = true
+				diskPath = partition.Path
+				break
+			}
+		}
+		if mounted {
+			break
+		}
+	}
+
+	if !mounted {
+		fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Abrir el archivo binario del disco montado
+	file, err := FileManagement.OpenFile(diskPath)
+	if err != nil {
+		fmt.Printf("Error: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+		fmt.Println("======FIN REP======")
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR desde el archivo.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Buscar la partición con el ID dado
+	var index int = -1
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Size != 0 {
+			if strings.Contains(string(TempMBR.Partitions[i].Id[:]), *id) {
+				if TempMBR.Partitions[i].Status[0] == '1' {
+					index = i
+				} else {
+					fmt.Printf("Error: La partición con el ID:%s no está montada.\n", *id)
+					fmt.Println("======FIN REP======")
+					return
+				}
+				break
+			}
+		}
+	}
+
+	if index == -1 {
+		fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Leer el SuperBloque
+	var TemporalSuperBloque DiskStruct.Superblock
+	if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
+		fmt.Println("Error: No se pudo leer el SuperBloque.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Generar el contenido del archivo DOT
+	var dot bytes.Buffer
+	fmt.Fprintln(&dot, "digraph G {")
+	fmt.Fprintln(&dot, "node [shape=plaintext];")
+	fmt.Fprintln(&dot, "fontname=\"Courier New\";")
+	fmt.Fprintln(&dot, "blocksTable [label=<")
+	fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+	fmt.Fprintln(&dot, "<tr><td bgcolor=\"Mediumslateblue\" colspan='2'>Bloques Utilizados</td></tr>")
+
+	// Leer los bloques utilizados
+	for i := 0; i < int(TemporalSuperBloque.S_blocks_count); i++ {
+		var block DiskStruct.Fileblock
+		offset := int64(TemporalSuperBloque.S_block_start) + int64(i)*int64(TemporalSuperBloque.S_block_size)
+		if err := FileManagement.ReadObject(file, &block, offset); err != nil {
+			fmt.Println("Error al leer el bloque:", err)
+			continue
+		}
+
+		// Agregar información del bloque al DOT
+		fmt.Fprintf(&dot, "<tr><td>Bloque %d</td><td>%s</td></tr>\n", i, strings.Trim(string(block.B_content[:]), "\x00"))
+	}
+
+	fmt.Fprintln(&dot, "</table>")
+	fmt.Fprintln(&dot, ">];")
+	fmt.Fprintln(&dot, "}")
+
+	// Guardar el archivo DOT
+	dotFilePath := strings.TrimSuffix(*path, filepath.Ext(*path)) + ".dot"
+	err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
+	if err != nil {
+		fmt.Println("Error al escribir el archivo DOT.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Generar la imagen con Graphviz
+	cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", *path)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("Error al ejecutar Graphviz.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	fmt.Printf("Reporte de BLOQUES generado con éxito en la ruta: %s\n", *path)
+	fmt.Println("======FIN REP======")
+	*/
 
 	// ===== FILE -LS REPORT =====
 	case "file", "ls":

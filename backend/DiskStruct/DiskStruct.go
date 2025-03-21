@@ -79,9 +79,9 @@ type Inode struct {
 	I_uid   int32     // UID of the user
 	I_gid   int32     // GID of the group
 	I_size  int32     // Size of the file
-	I_atime [17]byte  // Last access time
-	I_ctime [17]byte  // Creation time
-	I_mtime [17]byte  // Last modification time
+	I_atime [19]byte  // Last access time
+	I_ctime [19]byte  // Creation time
+	I_mtime [19]byte  // Last modification time
 	I_block [15]int32 // Pointers to the blocks
 	I_type  [1]byte   // File type: 0 for folder, 1 for file
 	I_perm  [3]byte   // Permissions
