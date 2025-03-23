@@ -130,8 +130,8 @@ function App() {
         
         } else if (command.startsWith("logout")) {
           requestBody = {}; 
-          endpoint = "logout";     
-        
+          endpoint = "logout";    
+          
         } else {
           results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
           continue;

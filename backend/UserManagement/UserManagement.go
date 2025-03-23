@@ -207,10 +207,174 @@ func SearchInodeByPath(StepsPath []string, Inode DiskStruct.Inode, file *os.File
 					}
 				}
 
-			} else {
+			} else if index == 13 {
 				// ==== INDIRECT CASE ====
-				// ----- TO DO	-----
-				fmt.Print("indirectos")
+				fmt.Println("Indirect case: Simple Indirect Block")
+
+				// Read the Pointerblock
+				var pointerBlock DiskStruct.Pointerblock
+				if err := FileManagement.ReadObject(file, &pointerBlock, int64(tempSuperblock.S_block_start+block*int32(binary.Size(DiskStruct.Pointerblock{})))); err != nil {
+					fmt.Println("Error reading Pointerblock:", err)
+					return -1
+				}
+
+				// Iterate over the pointers in the Pointerblock
+				for _, pointer := range pointerBlock.B_pointers {
+					if pointer != -1 {
+						var crrFolderBlock DiskStruct.Folderblock
+						// Read the Folderblock pointed by the current pointer
+						if err := FileManagement.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.S_block_start+pointer*int32(binary.Size(DiskStruct.Folderblock{})))); err != nil {
+							fmt.Println("Error reading Folderblock:", err)
+							return -1
+						}
+
+						// Iterate over the contents of the Folderblock
+						for _, folder := range crrFolderBlock.B_content {
+							fmt.Println("Folder === Name:", string(folder.B_name[:]), "B_inodo", folder.B_inodo)
+
+							if strings.Contains(string(folder.B_name[:]), SearchedName) {
+								fmt.Println("len(StepsPath)", len(StepsPath), "StepsPath", StepsPath)
+								if len(StepsPath) == 0 {
+									fmt.Println("Folder found======")
+									return folder.B_inodo
+								} else {
+									fmt.Println("NextInode======")
+									var NextInode DiskStruct.Inode
+									// Read the next Inode
+									if err := FileManagement.ReadObject(file, &NextInode, int64(tempSuperblock.S_inode_start+folder.B_inodo*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+										fmt.Println("Error reading NextInode:", err)
+										return -1
+									}
+									return SearchInodeByPath(StepsPath, NextInode, file, tempSuperblock)
+								}
+							}
+						}
+					}
+				}
+			} else if index == 14 {
+				// ==== DOUBLE INDIRECT CASE ====
+				fmt.Println("Indirect case: Double Indirect Block")
+
+				// Read the first-level Pointerblock
+				var firstLevelPointerBlock DiskStruct.Pointerblock
+				if err := FileManagement.ReadObject(file, &firstLevelPointerBlock, int64(tempSuperblock.S_block_start+block*int32(binary.Size(DiskStruct.Pointerblock{})))); err != nil {
+					fmt.Println("Error reading first-level Pointerblock:", err)
+					return -1
+				}
+
+				// Iterate over the first-level pointers
+				for _, firstPointer := range firstLevelPointerBlock.B_pointers {
+					if firstPointer != -1 {
+						// Read the second-level Pointerblock
+						var secondLevelPointerBlock DiskStruct.Pointerblock
+						if err := FileManagement.ReadObject(file, &secondLevelPointerBlock, int64(tempSuperblock.S_block_start+firstPointer*int32(binary.Size(DiskStruct.Pointerblock{})))); err != nil {
+							fmt.Println("Error reading second-level Pointerblock:", err)
+							return -1
+						}
+
+						// Iterate over the second-level pointers
+						for _, secondPointer := range secondLevelPointerBlock.B_pointers {
+							if secondPointer != -1 {
+								var crrFolderBlock DiskStruct.Folderblock
+								// Read the Folderblock pointed by the second-level pointer
+								if err := FileManagement.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.S_block_start+secondPointer*int32(binary.Size(DiskStruct.Folderblock{})))); err != nil {
+									fmt.Println("Error reading Folderblock:", err)
+									return -1
+								}
+
+								// Iterate over the contents of the Folderblock
+								for _, folder := range crrFolderBlock.B_content {
+									fmt.Println("Folder === Name:", string(folder.B_name[:]), "B_inodo", folder.B_inodo)
+
+									if strings.Contains(string(folder.B_name[:]), SearchedName) {
+										fmt.Println("len(StepsPath)", len(StepsPath), "StepsPath", StepsPath)
+										if len(StepsPath) == 0 {
+											fmt.Println("Folder found======")
+											return folder.B_inodo
+										} else {
+											fmt.Println("NextInode======")
+											var NextInode DiskStruct.Inode
+											// Read the next Inode
+											if err := FileManagement.ReadObject(file, &NextInode, int64(tempSuperblock.S_inode_start+folder.B_inodo*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+												fmt.Println("Error reading NextInode:", err)
+												return -1
+											}
+											return SearchInodeByPath(StepsPath, NextInode, file, tempSuperblock)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if index == 15 {
+			// ==== TRIPLE INDIRECT CASE ====
+			fmt.Println("Indirect case: Triple Indirect Block")
+
+			// Read the first-level Pointerblock
+			var firstLevelPointerBlock DiskStruct.Pointerblock
+			if err := FileManagement.ReadObject(file, &firstLevelPointerBlock, int64(tempSuperblock.S_block_start+block*int32(binary.Size(DiskStruct.Pointerblock{})))); err != nil {
+				fmt.Println("Error reading first-level Pointerblock:", err)
+				return -1
+			}
+
+			// Iterate over the first-level pointers
+			for _, firstPointer := range firstLevelPointerBlock.B_pointers {
+				if firstPointer != -1 {
+					// Read the second-level Pointerblock
+					var secondLevelPointerBlock DiskStruct.Pointerblock
+					if err := FileManagement.ReadObject(file, &secondLevelPointerBlock, int64(tempSuperblock.S_block_start+firstPointer*int32(binary.Size(DiskStruct.Pointerblock{})))); err != nil {
+						fmt.Println("Error reading second-level Pointerblock:", err)
+						return -1
+					}
+
+					// Iterate over the second-level pointers
+					for _, secondPointer := range secondLevelPointerBlock.B_pointers {
+						if secondPointer != -1 {
+							// Read the third-level Pointerblock
+							var thirdLevelPointerBlock DiskStruct.Pointerblock
+							if err := FileManagement.ReadObject(file, &thirdLevelPointerBlock, int64(tempSuperblock.S_block_start+secondPointer*int32(binary.Size(DiskStruct.Pointerblock{})))); err != nil {
+								fmt.Println("Error reading third-level Pointerblock:", err)
+								return -1
+							}
+
+							// Iterate over the third-level pointers
+							for _, thirdPointer := range thirdLevelPointerBlock.B_pointers {
+								if thirdPointer != -1 {
+									var crrFolderBlock DiskStruct.Folderblock
+									// Read the Folderblock pointed by the third-level pointer
+									if err := FileManagement.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.S_block_start+thirdPointer*int32(binary.Size(DiskStruct.Folderblock{})))); err != nil {
+										fmt.Println("Error reading Folderblock:", err)
+										return -1
+									}
+
+									// Iterate over the contents of the Folderblock
+									for _, folder := range crrFolderBlock.B_content {
+										fmt.Println("Folder === Name:", string(folder.B_name[:]), "B_inodo", folder.B_inodo)
+
+										if strings.Contains(string(folder.B_name[:]), SearchedName) {
+											fmt.Println("len(StepsPath)", len(StepsPath), "StepsPath", StepsPath)
+											if len(StepsPath) == 0 {
+												fmt.Println("Folder found======")
+												return folder.B_inodo
+											} else {
+												fmt.Println("NextInode======")
+												var NextInode DiskStruct.Inode
+												// Read the next Inode
+												if err := FileManagement.ReadObject(file, &NextInode, int64(tempSuperblock.S_inode_start+folder.B_inodo*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+													fmt.Println("Error reading NextInode:", err)
+													return -1
+												}
+												return SearchInodeByPath(StepsPath, NextInode, file, tempSuperblock)
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 		index++
@@ -295,17 +459,50 @@ func AppendToFileBlock(inode *DiskStruct.Inode, newData string, file *os.File, s
 	// Join the existing data with the new data
 	fullData := existingData + newData
 
-	// Verify if the content exceeds the current block capacity
-	if len(fullData) > len(inode.I_block)*binary.Size(DiskStruct.Fileblock{}) {
-		// TO DO: Logic to create a new block if the file exceeds the current block capacity (64) !!!
-		return fmt.Errorf("el tamaño del archivo excede la capacidad del bloque actual y no se ha implementado la creación de bloques adicionales")
-	}
+	// Calculate the size of a single block
+	blockSize := binary.Size(DiskStruct.Fileblock{})
 
-	// Write the new data to the block
-	var updatedFileBlock DiskStruct.Fileblock
-	copy(updatedFileBlock.B_content[:], fullData)
-	if err := FileManagement.WriteObject(file, updatedFileBlock, int64(superblock.S_block_start+inode.I_block[0]*int32(binary.Size(DiskStruct.Fileblock{})))); err != nil {
-		return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
+	// Check if the content exceeds the current block capacity
+	if len(fullData) > len(inode.I_block)*blockSize {
+		// Iterate through the inode's blocks to find the first free block
+		for i := 0; i < len(inode.I_block); i++ {
+			if inode.I_block[i] == -1 {
+				// Allocate a new block
+				newBlockIndex := superblock.S_first_blo
+				superblock.S_first_blo++ // Update the first free block pointer
+				superblock.S_free_blocks_count--
+
+				// Split the data to fit into the new block
+				start := i * blockSize
+				end := start + blockSize
+				if end > len(fullData) {
+					end = len(fullData)
+				}
+				blockData := fullData[start:end]
+
+				// Write the new block data
+				var newFileBlock DiskStruct.Fileblock
+				copy(newFileBlock.B_content[:], blockData)
+				if err := FileManagement.WriteObject(file, newFileBlock, int64(superblock.S_block_start+newBlockIndex*int32(blockSize))); err != nil {
+					return fmt.Errorf("error al escribir el nuevo bloque: %v", err)
+				}
+
+				// Update the inode to point to the new block
+				inode.I_block[i] = newBlockIndex
+			}
+		}
+
+		// If no free blocks are available, return an error
+		if len(fullData) > len(inode.I_block)*blockSize {
+			return fmt.Errorf("el tamaño del archivo excede la capacidad total de los bloques asignados al inodo")
+		}
+	} else {
+		// Write the data to the existing block
+		var updatedFileBlock DiskStruct.Fileblock
+		copy(updatedFileBlock.B_content[:], fullData)
+		if err := FileManagement.WriteObject(file, updatedFileBlock, int64(superblock.S_block_start+inode.I_block[0]*int32(blockSize))); err != nil {
+			return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
+		}
 	}
 
 	// Update the inode size
