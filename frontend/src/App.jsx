@@ -57,16 +57,47 @@ function App() {
           requestBody = { path, name };
           endpoint = "mount";
 
-        } else if (command.startsWith("mkdisk")) {
-          // Get parameters for mkdisk
-          let size = 0, unit = "k", fit = "", path = "";
-          params.forEach(param => {
-            if (param.startsWith("-size=")) size = parseInt(param.split("=")[1]); // Convert to number
-            if (param.startsWith("-unit=")) unit = param.split("=")[1].toLowerCase();
-            if (param.startsWith("-fit=")) fit = param.split("=")[1].toLowerCase();
-            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, ''); // Remove ""
-          });
-          
+        } else if (command.toLowerCase().startsWith("mkdisk")) {
+          let size = null, unit = "m", fit = "ff", path = "";
+          let errors = [];
+
+          // Regular expression to parse parameters with spaces inside quotes
+          const paramRegex = /(-\w+=("[^"]*"|[^\s]+))/g;
+          const matches = command.match(paramRegex);
+
+          if (matches) {
+            matches.forEach(param => {
+              const [key, value] = param.split("=");
+              const lowerKey = key.toLowerCase(); // Make the key case-insensitive
+
+              if (lowerKey === "-size") size = parseInt(value);
+              if (lowerKey === "-unit") unit = value.toLowerCase();
+              if (lowerKey === "-fit") fit = value.toLowerCase();
+              if (lowerKey === "-path") path = value.replace(/"/g, ''); // Remove quotes
+            });
+          }
+
+          // Validate required parameters
+          if (size === null || isNaN(size) || size <= 0) {
+            errors.push("El parámetro '-size' es obligatorio y debe ser mayor a 0.");
+          }
+          if (!path) {
+            errors.push("El parámetro '-path' es obligatorio.");
+          }
+          // Validate optional parameters
+          if (unit !== "k" && unit !== "m") {
+            errors.push("El parámetro '-unit' debe ser 'k' o 'm'.");
+          }
+          if (fit !== "ff" && fit !== "bf" && fit !== "wf") {
+            errors.push("El parámetro '-fit' debe ser 'ff', 'bf' o 'wf'.");
+          }
+
+          // If there are errors, show them and skip execution
+          if (errors.length > 0) {
+            results.push(`===============================================\nComando: ${command}\nErrores:\n- ${errors.join("\n- ")}\n===============================================\n`);
+            continue;
+          }
+
           // Set request body and endpoint for mkdisk
           requestBody = { size, unit, fit, path };
           endpoint = "mkdisk";
@@ -145,7 +176,7 @@ function App() {
           endpoint = "report";
 
         } else {
-          results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
+          results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
           continue;
         }
   
