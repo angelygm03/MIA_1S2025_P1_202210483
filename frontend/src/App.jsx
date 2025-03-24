@@ -131,7 +131,19 @@ function App() {
         } else if (command.startsWith("logout")) {
           requestBody = {}; 
           endpoint = "logout";    
-          
+        
+        } else if (command.startsWith("rep")) {
+          let path = "", name = "", id = "", pathFileLs = ""; 
+          params.forEach(param => {
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
+            if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
+            if (param.startsWith("-path_file_ls=")) pathFileLs = param.split("=")[1].replace(/"/g, '');
+          });
+        
+          requestBody = { path, name, id, pathFileLs };
+          endpoint = "report";
+
         } else {
           results.push(`==================================\nComando no reconocido: ${command}\n==================================\n`);
           continue;

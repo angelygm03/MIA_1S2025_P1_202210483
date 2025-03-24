@@ -1000,6 +1000,9 @@ func Fn_Rep(input string) {
 	fmt.Printf("Reporte de BLOQUES generado con éxito en la ruta: %s\n", *path)
 	fmt.Println("======FIN REP======")
 	*/
+	case "sb":
+		GenerateSuperblockReport(*id, *path)
+		fmt.Println("======FIN REP======")
 
 	// ===== FILE -LS REPORT =====
 	case "file", "ls":
@@ -1047,4 +1050,129 @@ func fn_login(input string) {
 
 	UserManagement.Login(*user, *pass, *id)
 
+}
+
+func GenerateSuperblockReport(id string, path string) {
+	// Buscar la partición montada
+	mounted := false
+	var diskPath string
+	for _, partitions := range DiskControl.GetMountedPartitions() {
+		for _, partition := range partitions {
+			if partition.ID == id {
+				mounted = true
+				diskPath = partition.Path
+				break
+			}
+		}
+		if mounted {
+			break
+		}
+	}
+
+	if !mounted {
+		fmt.Printf("Error REP SB: No se encontró la partición con el ID: %s.\n", id)
+		return
+	}
+
+	// Abrir el archivo binario del disco
+	file, err := FileManagement.OpenFile(diskPath)
+	if err != nil {
+		fmt.Printf("Error REP SB: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error REP SB: No se pudo leer el MBR desde el archivo.")
+		return
+	}
+
+	// Buscar la partición con el ID dado
+	var index int = -1
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Size != 0 {
+			if strings.Contains(string(TempMBR.Partitions[i].Id[:]), id) {
+				if TempMBR.Partitions[i].Status[0] == '1' {
+					index = i
+				} else {
+					fmt.Printf("Error REP SB: La partición con el ID:%s no está montada.\n", id)
+					return
+				}
+				break
+			}
+		}
+	}
+
+	if index == -1 {
+		fmt.Printf("Error REP SB: No se encontró la partición con el ID: %s.\n", id)
+		return
+	}
+
+	// Leer el SuperBloque
+	var TemporalSuperBloque DiskStruct.Superblock
+	if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
+		fmt.Println("Error REP SB: Error al leer el SuperBloque.")
+		return
+	}
+
+	// Generar el contenido del archivo DOT
+	var dot bytes.Buffer
+	fmt.Fprintln(&dot, "digraph G {")
+	fmt.Fprintln(&dot, "node [shape=plaintext];")
+	fmt.Fprintln(&dot, "fontname=\"Courier New\";")
+	fmt.Fprintln(&dot, "SBTable [label=<")
+	fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+	fmt.Fprintln(&dot, "<tr><td bgcolor=\"RosyBrown\" colspan='2'>Super Bloque</td></tr>")
+	fmt.Fprintf(&dot, "<tr><td>S_filesystem_type</td><td>%d</td></tr>\n", TemporalSuperBloque.S_filesystem_type)
+	fmt.Fprintf(&dot, "<tr><td>S_inodes_count</td><td>%d</td></tr>\n", TemporalSuperBloque.S_inodes_count)
+	fmt.Fprintf(&dot, "<tr><td>S_blocks_count</td><td>%d</td></tr>\n", TemporalSuperBloque.S_blocks_count)
+	fmt.Fprintf(&dot, "<tr><td>S_free_blocks_count</td><td>%d</td></tr>\n", TemporalSuperBloque.S_free_blocks_count)
+	fmt.Fprintf(&dot, "<tr><td>S_free_inodes_count</td><td>%d</td></tr>\n", TemporalSuperBloque.S_free_inodes_count)
+	fmt.Fprintf(&dot, "<tr><td>S_mtime</td><td>%s</td></tr>\n", string(TemporalSuperBloque.S_mtime[:]))
+	fmt.Fprintf(&dot, "<tr><td>S_umtime</td><td>%s</td></tr>\n", string(TemporalSuperBloque.S_umtime[:]))
+	fmt.Fprintf(&dot, "<tr><td>S_mnt_count</td><td>%d</td></tr>\n", TemporalSuperBloque.S_mnt_count)
+	fmt.Fprintf(&dot, "<tr><td>S_magic</td><td>0x%X</td></tr>\n", TemporalSuperBloque.S_magic)
+	fmt.Fprintf(&dot, "<tr><td>S_inode_size</td><td>%d</td></tr>\n", TemporalSuperBloque.S_inode_size)
+	fmt.Fprintf(&dot, "<tr><td>S_block_size</td><td>%d</td></tr>\n", TemporalSuperBloque.S_block_size)
+	fmt.Fprintf(&dot, "<tr><td>S_fist_ino</td><td>%d</td></tr>\n", TemporalSuperBloque.S_fist_ino)
+	fmt.Fprintf(&dot, "<tr><td>S_first_blo</td><td>%d</td></tr>\n", TemporalSuperBloque.S_first_blo)
+	fmt.Fprintf(&dot, "<tr><td>S_bm_inode_start</td><td>%d</td></tr>\n", TemporalSuperBloque.S_bm_inode_start)
+	fmt.Fprintf(&dot, "<tr><td>S_bm_block_start</td><td>%d</td></tr>\n", TemporalSuperBloque.S_bm_block_start)
+	fmt.Fprintf(&dot, "<tr><td>S_inode_start</td><td>%d</td></tr>\n", TemporalSuperBloque.S_inode_start)
+	fmt.Fprintf(&dot, "<tr><td>S_block_start</td><td>%d</td></tr>\n", TemporalSuperBloque.S_block_start)
+	fmt.Fprintln(&dot, "</table>")
+	fmt.Fprintln(&dot, ">];")
+	fmt.Fprintln(&dot, "}")
+
+	// Guardar el archivo DOT
+	dotFilePath := strings.TrimSuffix(path, filepath.Ext(path)) + ".dot"
+	err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
+	if err != nil {
+		fmt.Println("Error REP SB: Error al escribir el archivo DOT.")
+		return
+	}
+
+	// Crear el directorio si no existe
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		err = os.MkdirAll(dir, 0755)
+		if err != nil {
+			fmt.Println("Error REP SB: Error al crear el directorio.")
+			return
+		}
+	}
+
+	// Generar la imagen con Graphviz
+	cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", path)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("Error REP SB: Error al ejecutar Graphviz.")
+		return
+	}
+
+	fmt.Printf("Reporte de SB de la partición:%s generado con éxito en la ruta: %s\n", id, path)
 }
