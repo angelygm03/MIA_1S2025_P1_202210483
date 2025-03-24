@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -453,63 +454,418 @@ func GetInodeFileData(Inode DiskStruct.Inode, file *os.File, tempSuperblock Disk
 //===== MKUSER =====
 
 func AppendToFileBlock(inode *DiskStruct.Inode, newData string, file *os.File, superblock DiskStruct.Superblock) error {
-	// Read the existing data from the file
+	// read existing data
 	existingData := GetInodeFileData(*inode, file, superblock)
+	fmt.Println("Datos existentes en el bloque:", existingData)
 
-	// Join the existing data with the new data
+	// Concatenate the new data
 	fullData := existingData + newData
+	fmt.Println("Datos completos después de agregar:", fullData)
 
-	// Calculate the size of a single block
+	// Verify that the file size does not exceed the total capacity
 	blockSize := binary.Size(DiskStruct.Fileblock{})
-
-	// Check if the content exceeds the current block capacity
-	if len(fullData) > len(inode.I_block)*blockSize {
-		// Iterate through the inode's blocks to find the first free block
-		for i := 0; i < len(inode.I_block); i++ {
-			if inode.I_block[i] == -1 {
-				// Allocate a new block
-				newBlockIndex := superblock.S_first_blo
-				superblock.S_first_blo++ // Update the first free block pointer
-				superblock.S_free_blocks_count--
-
-				// Split the data to fit into the new block
-				start := i * blockSize
-				end := start + blockSize
-				if end > len(fullData) {
-					end = len(fullData)
-				}
-				blockData := fullData[start:end]
-
-				// Write the new block data
-				var newFileBlock DiskStruct.Fileblock
-				copy(newFileBlock.B_content[:], blockData)
-				if err := FileManagement.WriteObject(file, newFileBlock, int64(superblock.S_block_start+newBlockIndex*int32(blockSize))); err != nil {
-					return fmt.Errorf("error al escribir el nuevo bloque: %v", err)
-				}
-
-				// Update the inode to point to the new block
-				inode.I_block[i] = newBlockIndex
-			}
-		}
-
-		// If no free blocks are available, return an error
-		if len(fullData) > len(inode.I_block)*blockSize {
-			return fmt.Errorf("el tamaño del archivo excede la capacidad total de los bloques asignados al inodo")
-		}
-	} else {
-		// Write the data to the existing block
-		var updatedFileBlock DiskStruct.Fileblock
-		copy(updatedFileBlock.B_content[:], fullData)
-		if err := FileManagement.WriteObject(file, updatedFileBlock, int64(superblock.S_block_start+inode.I_block[0]*int32(blockSize))); err != nil {
-			return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
-		}
+	totalCapacity := len(inode.I_block) * blockSize
+	if len(fullData) > totalCapacity {
+		fmt.Printf("Error: El tamaño del archivo (%d bytes) excede la capacidad total asignada (%d bytes).\n", len(fullData), totalCapacity)
+		return fmt.Errorf("el tamaño del archivo excede la capacidad total asignada y no se ha implementado la creación de bloques adicionales")
 	}
 
-	// Update the inode size
+	// Split the full data into blocks
+	remainingData := fullData
+	blockIndex := 0
+
+	for len(remainingData) > 0 {
+		// If no block is assigned, find a free block
+		if blockIndex >= len(inode.I_block) || inode.I_block[blockIndex] == -1 {
+			newBlockIndex := FindFreeBlock(superblock, file)
+			if newBlockIndex == -1 {
+				return fmt.Errorf("no hay bloques libres disponibles")
+			}
+			inode.I_block[blockIndex] = int32(newBlockIndex)
+			fmt.Printf("Asignando nuevo bloque: %d\n", newBlockIndex)
+		}
+
+		// Create a new file block with the data
+		var updatedFileBlock DiskStruct.Fileblock
+		copy(updatedFileBlock.B_content[:], remainingData[:min(len(remainingData), blockSize)])
+
+		// Write the updated block to the file
+		position := int64(superblock.S_block_start + inode.I_block[blockIndex]*int32(blockSize))
+		fmt.Printf("Escribiendo bloque en la posición: %d\n", position)
+		if err := FileManagement.WriteObject(file, updatedFileBlock, position); err != nil {
+			return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
+		}
+
+		// Update the rest of the data
+		remainingData = remainingData[min(len(remainingData), blockSize):]
+		blockIndex++
+	}
+
+	// Update inode size
 	inode.I_size = int32(len(fullData))
-	if err := FileManagement.WriteObject(file, *inode, int64(superblock.S_inode_start+inode.I_block[0]*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+	inodePosition := int64(superblock.S_inode_start + inode.I_block[0]*int32(binary.Size(DiskStruct.Inode{})))
+	fmt.Printf("Actualizando inodo en la posición: %d\n", inodePosition)
+	fmt.Printf("Nuevo tamaño del inodo (I_size): %d\n", inode.I_size)
+	if err := FileManagement.WriteObject(file, *inode, inodePosition); err != nil {
 		return fmt.Errorf("error al actualizar el inodo: %v", err)
 	}
 
+	fmt.Println("Bloque e inodo actualizados correctamente.")
+	return nil
+}
+
+// Aux func to find a free block of the superblock and
+func FindFreeBlock(superblock DiskStruct.Superblock, file *os.File) int {
+	// Read the bitmap of blocks
+	bitmap := make([]byte, superblock.S_blocks_count)
+	if _, err := file.ReadAt(bitmap, int64(superblock.S_bm_block_start)); err != nil {
+		fmt.Println("Error al leer el bitmap de bloques:", err)
+		return -1
+	}
+
+	// Find the first free block
+	for i, b := range bitmap {
+		if b == 0 {
+			// Mark the block as used
+			bitmap[i] = 1
+			if _, err := file.WriteAt(bitmap, int64(superblock.S_bm_block_start)); err != nil {
+				fmt.Println("Error al actualizar el bitmap de bloques:", err)
+				return -1
+			}
+			return i
+		}
+	}
+
+	return -1 //If there is no free block
+}
+
+// Aux fun copy the new data to the block
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func Mkusr(user string, pass string, grp string) {
+	fmt.Printf("Parámetros recibidos: user=%s, pass=%s, grp=%s\n", user, pass, grp)
+
+	// Validate that the user is root
+	if !IsRootUser() {
+		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+
+	// Validate the length of the parameters
+	if len(user) > 10 || len(pass) > 10 || len(grp) > 10 {
+		fmt.Println("Error: Los parámetros 'user', 'pass' y 'grp' no pueden exceder los 10 caracteres.")
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+
+	// Get mounted partitions and find the active partition
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // Find the active partition
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+	defer file.Close()
+
+	// Read the MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	// Read the Superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // Active partition
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Println("Error: No se encontró el archivo users.txt.")
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+		return
+	}
+
+	// Read the content of the users.txt file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	fmt.Println("Contenido actual del archivo users.txt:")
+	fmt.Println(data)
+
+	// Verify if the group exists
+	lines := strings.Split(data, "\n")
+	groupExists := false
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) == 3 && words[1] == "G" && words[2] == grp {
+			groupExists = true
+			fmt.Printf("Grupo encontrado: %s\n", grp)
+			break
+		}
+	}
+
+	if !groupExists {
+		fmt.Println("Error: El grupo especificado no existe.")
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+
+	// If the user already exists, return an error
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) == 5 && words[1] == "U" && words[3] == user {
+			fmt.Println("Error: El usuario especificado ya existe.")
+			fmt.Println("====== End MKUSR ======")
+			return
+		}
+	}
+
+	// Global counter for the user IDs
+	if nextUserID == 0 {
+		// Init the counter
+		if err := InitializeUserIDCounter(file, tempSuperblock); err != nil {
+			fmt.Println(err)
+			fmt.Println("====== End MKUSR ======")
+			return
+		}
+	}
+
+	newUserID := nextUserID
+	nextUserID++ // Increase the counter for the next user
+	newUser := fmt.Sprintf("%d,U,%s,%s,%s\n", newUserID, user, grp, pass)
+	fmt.Printf("Nuevo usuario a agregar: %s\n", newUser)
+
+	// Add the new user to the users.txt file
+	if err := AppendToFileBlock(&crrInode, newUser, file, tempSuperblock); err != nil {
+		fmt.Println("Error: No se pudo agregar el nuevo usuario al archivo users.txt:", err)
+		fmt.Println("====== End MKUSR ======")
+		return
+	}
+
+	fmt.Println("Usuario creado exitosamente.")
+	fmt.Println("====== End MKUSR ======")
+}
+
+// Aux fun to verify if the user is root or not
+func IsRootUser() bool {
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn {
+				// If there is an active session, verify if the user is root
+				file, err := FileManagement.OpenFile(partition.Path)
+				if err != nil {
+					fmt.Println("Error: No se pudo abrir el archivo:", err)
+					return false
+				}
+				defer file.Close()
+
+				var TempMBR DiskStruct.MRB
+				if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+					fmt.Println("Error: No se pudo leer el MBR:", err)
+					return false
+				}
+
+				var tempSuperblock DiskStruct.Superblock
+				if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[0].Start)); err != nil {
+					fmt.Println("Error: No se pudo leer el Superblock:", err)
+					return false
+				}
+
+				// Find the users.txt file
+				indexInode := InitSearch("/users.txt", file, tempSuperblock)
+				if indexInode == -1 {
+					fmt.Println("Error: No se encontró el archivo users.txt.")
+					return false
+				}
+
+				var crrInode DiskStruct.Inode
+				if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+					fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+					return false
+				}
+
+				// Read the content of the users.txt file
+				data := GetInodeFileData(crrInode, file, tempSuperblock)
+
+				// Verify if the logged user is root
+				lines := strings.Split(data, "\n")
+				for _, line := range lines {
+					words := strings.Split(line, ",")
+					if len(words) == 5 && words[1] == "U" && words[3] == "root" {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	// If not active session, return false
+	return false
+}
+
+func PrintUsersFile() {
+	fmt.Println("====== Start Print Users File ======")
+
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	// Find the active partition
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // Active partition
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End Print Users File ======")
+		return
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End Print Users File ======")
+		return
+	}
+	defer file.Close()
+
+	// Read the Superblock
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // Active partition
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Println("Error: No se encontró el archivo users.txt.")
+		fmt.Println("====== End Print Users File ======")
+		return
+	}
+
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+		return
+	}
+
+	// Read the content of the users.txt file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	fmt.Println("Contenido del archivo users.txt:")
+	fmt.Println(data)
+
+	fmt.Println("====== End Print Users File ======")
+}
+
+// Global counter for the user IDs
+var nextUserID int = 0
+
+// Func to initialize the user ID counter
+func InitializeUserIDCounter(file *os.File, tempSuperblock DiskStruct.Superblock) error {
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Printf("error: No se encontró el archivo users.txt.")
+
+	}
+
+	// Read the Inode of the users.txt file
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Printf("error al leer el Inodo del archivo users.txt: %v", err)
+	}
+
+	// Read the data from the file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	lines := strings.Split(data, "\n")
+
+	// Calculating the max ID
+	maxID := 0
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) > 0 {
+			// Get the ID from the first column
+			if id, err := strconv.Atoi(strings.TrimSpace(words[0])); err == nil {
+				if id > maxID {
+					maxID = id
+				}
+			}
+		}
+	}
+
+	// Update global counter
+	nextUserID = maxID + 1
+	fmt.Printf("Contador de IDs inicializado en: %d\n", nextUserID)
 	return nil
 }

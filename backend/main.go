@@ -55,6 +55,12 @@ type LoginRequest struct {
 	Id       string `json:"id"`
 }
 
+type MkusrRequest struct {
+	User string `json:"user"`
+	Pass string `json:"pass"`
+	Grp  string `json:"grp"`
+}
+
 // ====== CORS ======
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -313,6 +319,44 @@ func getMountedPartitionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Decodify the JSON
+	var req MkusrRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para crear usuario:", req)
+
+	// Validate the request
+	if req.User == "" || req.Pass == "" || req.Grp == "" {
+		http.Error(w, "Error: Los parámetros 'user', 'pass' y 'grp' son obligatorios.", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.User) > 10 || len(req.Pass) > 10 || len(req.Grp) > 10 {
+		http.Error(w, "Error: Los valores de 'user', 'pass' y 'grp' no pueden exceder los 10 caracteres.", http.StatusBadRequest)
+		return
+	}
+
+	command := fmt.Sprintf("-user=%s -pass=%s -grp=%s", req.User, req.Pass, req.Grp)
+	DiskCommands.AnalyzeCommand("mkusr", command)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Usuario '%s' creado exitosamente en el grupo '%s'", req.User, req.Grp)))
+	UserManagement.PrintUsersFile()
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mkdisk", createDisk)
@@ -324,6 +368,7 @@ func main() {
 	mux.HandleFunc("/login", loginUser)
 	mux.HandleFunc("/logout", logoutUser)
 	mux.HandleFunc("/list-mounted", getMountedPartitionsHandler)
+	mux.HandleFunc("/mkusr", createUserHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

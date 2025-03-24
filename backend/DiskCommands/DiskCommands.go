@@ -64,6 +64,8 @@ func AnalyzeCommand(command string, params string) {
 		Fn_Rep(params) // Call the function rep
 	} else if strings.Contains(command, "login") {
 		fn_login(params) // Call the function login
+	} else if strings.Contains(command, "mkusr") {
+		fn_mkusr(params) // Call the function mkusr
 	} else {
 		fmt.Println("Error: Comando inválido o no encontrado")
 	}
@@ -1053,7 +1055,7 @@ func fn_login(input string) {
 }
 
 func GenerateSuperblockReport(id string, path string) {
-	// Buscar la partición montada
+	// Find the mounted partition
 	mounted := false
 	var diskPath string
 	for _, partitions := range DiskControl.GetMountedPartitions() {
@@ -1074,7 +1076,7 @@ func GenerateSuperblockReport(id string, path string) {
 		return
 	}
 
-	// Abrir el archivo binario del disco
+	// Open bin file of the mounted disk
 	file, err := FileManagement.OpenFile(diskPath)
 	if err != nil {
 		fmt.Printf("Error REP SB: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
@@ -1082,14 +1084,14 @@ func GenerateSuperblockReport(id string, path string) {
 	}
 	defer file.Close()
 
-	// Leer el MBR
+	// Read the MBR
 	var TempMBR DiskStruct.MRB
 	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 		fmt.Println("Error REP SB: No se pudo leer el MBR desde el archivo.")
 		return
 	}
 
-	// Buscar la partición con el ID dado
+	// Find the partition with the given ID
 	var index int = -1
 	for i := 0; i < 4; i++ {
 		if TempMBR.Partitions[i].Size != 0 {
@@ -1110,14 +1112,14 @@ func GenerateSuperblockReport(id string, path string) {
 		return
 	}
 
-	// Leer el SuperBloque
+	// Read the SuperBlock
 	var TemporalSuperBloque DiskStruct.Superblock
 	if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
 		fmt.Println("Error REP SB: Error al leer el SuperBloque.")
 		return
 	}
 
-	// Generar el contenido del archivo DOT
+	// Content of the dot file
 	var dot bytes.Buffer
 	fmt.Fprintln(&dot, "digraph G {")
 	fmt.Fprintln(&dot, "node [shape=plaintext];")
@@ -1146,7 +1148,7 @@ func GenerateSuperblockReport(id string, path string) {
 	fmt.Fprintln(&dot, ">];")
 	fmt.Fprintln(&dot, "}")
 
-	// Guardar el archivo DOT
+	// Create the dot file
 	dotFilePath := strings.TrimSuffix(path, filepath.Ext(path)) + ".dot"
 	err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
 	if err != nil {
@@ -1154,7 +1156,7 @@ func GenerateSuperblockReport(id string, path string) {
 		return
 	}
 
-	// Crear el directorio si no existe
+	// New folder if it doesn't exist
 	dir := filepath.Dir(path)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0755)
@@ -1164,7 +1166,7 @@ func GenerateSuperblockReport(id string, path string) {
 		}
 	}
 
-	// Generar la imagen con Graphviz
+	// Generate the image
 	cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", path)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -1175,4 +1177,49 @@ func GenerateSuperblockReport(id string, path string) {
 	}
 
 	fmt.Printf("Reporte de SB de la partición:%s generado con éxito en la ruta: %s\n", id, path)
+}
+
+func fn_mkusr(input string) {
+	fmt.Println("======Start MKUSR======")
+	fs := flag.NewFlagSet("mkusr", flag.ExitOnError)
+	user := fs.String("user", "", "Nombre del usuario")
+	pass := fs.String("pass", "", "Contraseña del usuario")
+	grp := fs.String("grp", "", "Grupo al que pertenece el usuario")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := match[2]
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		switch flagName {
+		case "user", "pass", "grp":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag no encontrada:", flagName)
+			fmt.Println("======FIN MKUSR======")
+			return
+		}
+	}
+
+	// Validate that the parameters 'user', 'pass' and 'grp' are not empty
+	if *user == "" || *pass == "" || *grp == "" {
+		fmt.Println("Error: Los parámetros 'user', 'pass' y 'grp' son obligatorios.")
+		fmt.Println("======FIN MKUSR======")
+		return
+	}
+
+	// Values cannot exceed 10 characters
+	if len(*user) > 10 || len(*pass) > 10 || len(*grp) > 10 {
+		fmt.Println("Error: Los valores de 'user', 'pass' y 'grp' no pueden exceder los 10 caracteres.")
+		fmt.Println("======FIN MKUSR======")
+		return
+	}
+
+	// Call the function to create the user
+	UserManagement.Mkusr(*user, *pass, *grp)
+	fmt.Println("======FIN MKUSR======")
 }

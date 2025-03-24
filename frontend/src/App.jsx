@@ -174,6 +174,29 @@ function App() {
         
           requestBody = { path, name, id, pathFileLs };
           endpoint = "report";
+        
+        } else if (command.startsWith("mkusr")) {
+          let user = "", pass = "", grp = "";
+          params.forEach(param => {
+            if (param.startsWith("-user=")) user = param.split("=")[1].trim();
+            if (param.startsWith("-pass=")) pass = param.split("=")[1].trim();
+            if (param.startsWith("-grp=")) grp = param.split("=")[1].trim();
+          });
+        
+          // Validate that all parameters are present
+          if (!user || !pass || !grp) {
+            results.push(`Error: Los parámetros 'user', 'pass' y 'grp' son obligatorios para el comando 'mkusr'.`);
+            continue;
+          }
+        
+          // Validate that all parameters are not longer than 10 characters
+          if (user.length > 10 || pass.length > 10 || grp.length > 10) {
+            results.push(`Error: Los valores de 'user', 'pass' y 'grp' no pueden exceder los 10 caracteres.`);
+            continue;
+          }
+      
+          requestBody = { user, pass, grp };
+          endpoint = "mkusr";
 
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
