@@ -61,6 +61,10 @@ type MkusrRequest struct {
 	Grp  string `json:"grp"`
 }
 
+type MkgrpRequest struct {
+	Name string `json:"name"`
+}
+
 // ====== CORS ======
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -357,6 +361,36 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	UserManagement.PrintUsersFile()
 }
 
+func createGroupHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req MkgrpRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para crear grupo:", req)
+
+	if req.Name == "" {
+		http.Error(w, "Error: El parámetro 'name' es obligatorio.", http.StatusBadRequest)
+		return
+	}
+
+	// Call the function to create the group
+	UserManagement.Mkgrp(req.Name)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Grupo '%s' creado exitosamente.", req.Name)))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mkdisk", createDisk)
@@ -369,6 +403,7 @@ func main() {
 	mux.HandleFunc("/logout", logoutUser)
 	mux.HandleFunc("/list-mounted", getMountedPartitionsHandler)
 	mux.HandleFunc("/mkusr", createUserHandler)
+	mux.HandleFunc("/mkgrp", createGroupHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

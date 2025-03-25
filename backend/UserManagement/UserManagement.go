@@ -828,8 +828,9 @@ func PrintUsersFile() {
 	fmt.Println("====== End Print Users File ======")
 }
 
-// Global counter for the user IDs
+// ==== GLOBAL COUNTERS ====
 var nextUserID int = 0
+var nextGroupID int = 0
 
 // Func to initialize the user ID counter
 func InitializeUserIDCounter(file *os.File, tempSuperblock DiskStruct.Superblock) error {
@@ -868,4 +869,163 @@ func InitializeUserIDCounter(file *os.File, tempSuperblock DiskStruct.Superblock
 	nextUserID = maxID + 1
 	fmt.Printf("Contador de IDs inicializado en: %d\n", nextUserID)
 	return nil
+}
+
+// Func to init the grup counter
+func InitializeGroupIDCounter(file *os.File, tempSuperblock DiskStruct.Superblock) error {
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Printf("Error: No se encontró el archivo users.txt.\n")
+		return fmt.Errorf("archivo users.txt no encontrado")
+	}
+
+	// Read the Inode of the users.txt file
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Printf("Error al leer el Inodo del archivo users.txt: %v\n", err)
+		return err
+	}
+
+	// Read the data from the file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	lines := strings.Split(data, "\n")
+
+	// Calculating the max group ID
+	maxGroupID := 0
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) > 0 && len(words) >= 3 && strings.TrimSpace(words[1]) == "G" {
+			// Get the ID from the first column
+			if id, err := strconv.Atoi(strings.TrimSpace(words[0])); err == nil {
+				if id > maxGroupID {
+					maxGroupID = id
+				}
+			}
+		}
+	}
+
+	// Update global counter
+	nextGroupID = maxGroupID + 1
+	fmt.Printf("Contador de IDs de grupos inicializado en: %d\n", nextGroupID)
+	return nil
+}
+
+func Mkgrp(name string) {
+	fmt.Printf("Parámetro recibido: name=%s\n", name)
+
+	// User must be root
+	if !IsRootUser() {
+		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
+		fmt.Println("====== End MKGRP ======")
+		return
+	}
+
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // Find the active partition
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End MKGRP ======")
+		return
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End MKGRP ======")
+		return
+	}
+	defer file.Close()
+
+	// Read the MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	// Read the Superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // Active partition
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Println("Error: No se encontró el archivo users.txt.")
+		fmt.Println("====== End MKGRP ======")
+		return
+	}
+
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+		return
+	}
+
+	// Read the content of the users.txt file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	fmt.Println("Contenido actual del archivo users.txt:")
+	fmt.Println(data)
+
+	// Verify if the group already exists
+	lines := strings.Split(data, "\n")
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) == 3 && words[1] == "G" && words[2] == name {
+			fmt.Println("Error: El grupo especificado ya existe.")
+			fmt.Println("====== End MKGRP ======")
+			return
+		}
+	}
+
+	// Init the global counter for the group IDs
+	if nextGroupID == 0 {
+		if err := InitializeGroupIDCounter(file, tempSuperblock); err != nil {
+			fmt.Println(err)
+			fmt.Println("====== End MKGRP ======")
+			return
+		}
+	}
+
+	// Create the new group
+	newGroupID := nextGroupID
+	nextGroupID++ //Increase the counter for the next group
+	newGroup := fmt.Sprintf("%d,G,%s\n", newGroupID, name)
+	fmt.Printf("Nuevo grupo a agregar: %s\n", newGroup)
+
+	// Add the new group to the users.txt file
+	if err := AppendToFileBlock(&crrInode, newGroup, file, tempSuperblock); err != nil {
+		fmt.Println("Error: No se pudo agregar el nuevo grupo al archivo users.txt:", err)
+		fmt.Println("====== End MKGRP ======")
+		return
+	}
+
+	fmt.Println("Grupo creado exitosamente.")
+	fmt.Println("====== End MKGRP ======")
 }

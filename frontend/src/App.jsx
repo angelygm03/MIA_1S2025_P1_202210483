@@ -197,7 +197,22 @@ function App() {
       
           requestBody = { user, pass, grp };
           endpoint = "mkusr";
-
+        
+        } else if (command.startsWith("mkgrp")) {
+          let name = "";
+          params.forEach(param => {
+            if (param.startsWith("-name=")) name = param.split("=")[1].trim();
+          });
+        
+          // Name is required
+          if (!name) {
+            results.push(`Error: El parámetro 'name' es obligatorio para el comando 'mkgrp'.`);
+            continue;
+          }
+        
+          requestBody = { name };
+          endpoint = "mkgrp";
+        
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
           continue;
