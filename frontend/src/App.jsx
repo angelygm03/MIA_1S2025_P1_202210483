@@ -212,6 +212,21 @@ function App() {
         
           requestBody = { name };
           endpoint = "mkgrp";
+
+        } else if (command.startsWith("rmusr")) {
+          let user = "";
+          params.forEach(param => {
+            if (param.startsWith("-user=")) user = param.split("=")[1].trim();
+          });
+        
+          // User is required
+          if (!user) {
+            results.push(`Error: El parámetro 'user' es obligatorio para el comando 'rmusr'.`);
+            continue;
+          }
+        
+          requestBody = { user };
+          endpoint = "rmusr";
         
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);

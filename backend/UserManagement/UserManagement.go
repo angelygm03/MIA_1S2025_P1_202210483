@@ -1029,3 +1029,190 @@ func Mkgrp(name string) {
 	fmt.Println("Grupo creado exitosamente.")
 	fmt.Println("====== End MKGRP ======")
 }
+
+func Rmusr(user string) {
+	fmt.Printf("Parámetro recibido: user='%s'\n", user)
+
+	// Validate that the user is root
+	if !IsRootUser() {
+		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
+		fmt.Println("====== End RMUSR ======")
+		return
+	}
+
+	// Get mounted partitions and find the active partition
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { //active sesion
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End RMUSR ======")
+		return
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End RMUSR ======")
+		return
+	}
+	defer file.Close()
+
+	// Read the MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	// Read the superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // active session
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Println("Error: No se encontró el archivo users.txt.")
+		fmt.Println("====== End RMUSR ======")
+		return
+	}
+
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+		return
+	}
+
+	// Read the content of the users.txt file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	fmt.Println("Contenido actual del archivo users.txt:")
+	fmt.Println(data)
+
+	// Find the user to remove
+	lines := strings.Split(data, "\n")
+	var updatedLines []string
+	userFound := false
+
+	// Clean the user parameter
+	cleanedUser := strings.TrimSpace(user)
+	cleanedUser = strings.ReplaceAll(cleanedUser, "\u200B", "") // Remove invisible characters
+
+	for _, line := range lines {
+		// Eliminar espacios en blanco adicionales
+		line = strings.TrimSpace(line)
+		line = strings.ReplaceAll(line, "\u200B", "") // Remove invisible characters
+		if line == "" {
+			continue // Ignorar líneas vacías
+		}
+
+		words := strings.Split(line, ",")
+		fmt.Printf("Campos de la línea: %v\n", words)
+
+		if len(words) == 5 {
+			// Clean the user field
+			for i := range words {
+				words[i] = strings.TrimSpace(words[i])
+				words[i] = strings.ReplaceAll(words[i], "\u200B", "")
+			}
+
+			// Compare the user
+			fmt.Printf("Comparando usuario: '%s' con '%s'\n", words[2], cleanedUser)
+			if words[1] == "U" && words[2] == cleanedUser {
+				// Change the status of the user to 0
+				words[0] = "0"
+				userFound = true
+			}
+			updatedLines = append(updatedLines, strings.Join(words, ","))
+		} else {
+			updatedLines = append(updatedLines, line)
+		}
+	}
+
+	if !userFound {
+		fmt.Printf("Error: El usuario '%s' no existe.\n", cleanedUser)
+		fmt.Println("====== End RMUSR ======")
+		return
+	}
+
+	// Update the content of the users.txt file
+	newData := strings.Join(updatedLines, "\n")
+
+	// Overwrite the file block with the updated data
+	if err := OverwriteFileBlock(&crrInode, newData, file, tempSuperblock, indexInode); err != nil {
+		fmt.Println("Error: No se pudo actualizar el archivo users.txt:", err)
+		fmt.Println("====== End RMUSR ======")
+		return
+	}
+
+	// Updated content of the users.txt file
+	fmt.Println("Contenido actualizado del archivo users.txt:")
+	fmt.Println(newData)
+
+	fmt.Println("Usuario eliminado exitosamente.")
+	fmt.Println("====== End RMUSR ======")
+}
+
+func OverwriteFileBlock(inode *DiskStruct.Inode, newData string, file *os.File, superblock DiskStruct.Superblock, indexInode int32) error {
+	// Split the new data into blocks
+	blockSize := binary.Size(DiskStruct.Fileblock{})
+	remainingData := newData
+	blockIndex := 0
+
+	for len(remainingData) > 0 {
+		// If no block is assigned, find a free block
+		if blockIndex >= len(inode.I_block) || inode.I_block[blockIndex] == -1 {
+			newBlockIndex := FindFreeBlock(superblock, file)
+			if newBlockIndex == -1 {
+				return fmt.Errorf("no hay bloques libres disponibles")
+			}
+			inode.I_block[blockIndex] = int32(newBlockIndex)
+		}
+
+		// New file block with the data
+		var updatedFileBlock DiskStruct.Fileblock
+		copy(updatedFileBlock.B_content[:], remainingData[:min(len(remainingData), blockSize)])
+
+		// Write the updated block to the file
+		position := int64(superblock.S_block_start + inode.I_block[blockIndex]*int32(blockSize))
+		if err := FileManagement.WriteObject(file, updatedFileBlock, position); err != nil {
+			return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
+		}
+
+		// Update the rest of the data
+		remainingData = remainingData[min(len(remainingData), blockSize):]
+		blockIndex++
+	}
+
+	//Update inode size
+	inode.I_size = int32(len(newData))
+	inodePosition := int64(superblock.S_inode_start + indexInode*int32(binary.Size(DiskStruct.Inode{})))
+	if err := FileManagement.WriteObject(file, *inode, inodePosition); err != nil {
+		return fmt.Errorf("error al actualizar el inodo: %v", err)
+	}
+
+	return nil
+}
