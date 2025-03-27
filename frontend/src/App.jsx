@@ -242,7 +242,23 @@ function App() {
 
           requestBody = { user };
           endpoint = "rmusr";
-
+        
+        } else if (command.startsWith("chgrp")) {
+          let user = "", grp = "";
+          params.forEach(param => {
+            if (param.startsWith("-user=")) user = param.split("=")[1].trim();
+            if (param.startsWith("-grp=")) grp = param.split("=")[1].trim();
+          });
+        
+          // Validar que los parámetros sean obligatorios
+          if (!user || !grp) {
+            results.push(`Error: Los parámetros 'user' y 'grp' son obligatorios para el comando 'chgrp'.`);
+            continue;
+          }
+        
+          requestBody = { user, grp };
+          endpoint = "chgrp";
+        
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
           continue;

@@ -453,6 +453,40 @@ func removeGroupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Grupo '%s' eliminado exitosamente.", req.Name)))
 }
 
+// Handler para el comando CHGRP
+func changeGroupHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req struct {
+		User string `json:"user"`
+		Grp  string `json:"grp"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para cambiar grupo:", req)
+
+	if req.User == "" || req.Grp == "" {
+		http.Error(w, "Error: Los parámetros 'user' y 'grp' son obligatorios.", http.StatusBadRequest)
+		return
+	}
+
+	// Llamar a la función CHGRP en UserManagement
+	UserManagement.Chgrp(req.User, req.Grp)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Grupo del usuario '%s' cambiado exitosamente a '%s'.", req.User, req.Grp)))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mkdisk", createDisk)
@@ -468,6 +502,7 @@ func main() {
 	mux.HandleFunc("/mkgrp", createGroupHandler)
 	mux.HandleFunc("/rmusr", removeUserHandler)
 	mux.HandleFunc("/rmgrp", removeGroupHandler)
+	mux.HandleFunc("/chgrp", changeGroupHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

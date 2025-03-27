@@ -1361,3 +1361,136 @@ func Rmgrp(name string) {
 	fmt.Println("Grupo eliminado exitosamente.")
 	fmt.Println("====== End RMGRP ======")
 }
+
+func Chgrp(user string, grp string) {
+	fmt.Printf("Parámetros recibidos: user='%s', grp='%s'\n", user, grp)
+
+	// Validar que el usuario sea root
+	if !IsRootUser() {
+		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+
+	// Obtener las particiones montadas y encontrar la partición activa
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // Sesión activa
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+
+	// Abrir el archivo binario
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+	defer file.Close()
+
+	// Leer el Superblock
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // Partición activa
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Buscar el archivo users.txt
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Println("Error: No se encontró el archivo users.txt.")
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+		return
+	}
+
+	// Leer el contenido del archivo users.txt
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	fmt.Println("Contenido actual del archivo users.txt:")
+	fmt.Println(data)
+
+	// Verificar si el grupo existe
+	lines := strings.Split(data, "\n")
+	groupExists := false
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) == 3 && words[1] == "G" && words[2] == grp {
+			groupExists = true
+			break
+		}
+	}
+
+	if !groupExists {
+		fmt.Printf("Error: El grupo '%s' no existe.\n", grp)
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+
+	// Actualizar el grupo del usuario
+	var updatedLines []string
+	userFound := false
+	for _, line := range lines {
+		words := strings.Split(line, ",")
+		if len(words) == 5 && words[1] == "U" && words[2] == user {
+			words[3] = grp // Cambiar el grupo
+			userFound = true
+		}
+		updatedLines = append(updatedLines, strings.Join(words, ","))
+	}
+
+	if !userFound {
+		fmt.Printf("Error: El usuario '%s' no existe.\n", user)
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+
+	// Actualizar el contenido del archivo users.txt
+	newData := strings.Join(updatedLines, "\n")
+
+	// Sobrescribir el bloque del archivo con los datos actualizados
+	if err := OverwriteFileBlock(&crrInode, newData, file, tempSuperblock, indexInode); err != nil {
+		fmt.Println("Error: No se pudo actualizar el archivo users.txt:", err)
+		fmt.Println("====== End CHGRP ======")
+		return
+	}
+
+	fmt.Println("Contenido actualizado del archivo users.txt:")
+	fmt.Println(newData)
+
+	fmt.Println("Grupo del usuario actualizado exitosamente.")
+	fmt.Println("====== End CHGRP ======")
+}
