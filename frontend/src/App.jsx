@@ -213,21 +213,36 @@ function App() {
           requestBody = { name };
           endpoint = "mkgrp";
 
+        } else if (command.startsWith("rmgrp")) {
+          let name = "";
+          params.forEach(param => {
+            if (param.startsWith("-name=")) name = param.split("=")[1].trim();
+          });
+
+          // Name is required
+          if (!name) {
+            results.push(`Error: El parámetro 'name' es obligatorio para el comando 'rmgrp'.`);
+            continue;
+          }
+
+          requestBody = { name };
+          endpoint = "rmgrp";
+
         } else if (command.startsWith("rmusr")) {
           let user = "";
           params.forEach(param => {
             if (param.startsWith("-user=")) user = param.split("=")[1].trim();
           });
-        
+
           // User is required
           if (!user) {
             results.push(`Error: El parámetro 'user' es obligatorio para el comando 'rmusr'.`);
             continue;
           }
-        
+
           requestBody = { user };
           endpoint = "rmusr";
-        
+
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
           continue;

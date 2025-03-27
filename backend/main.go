@@ -422,6 +422,37 @@ func removeUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Usuario '%s' eliminado exitosamente.", req.User)))
 }
 
+func removeGroupHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para eliminar grupo:", req)
+
+	if req.Name == "" {
+		http.Error(w, "Error: El parámetro 'name' es obligatorio.", http.StatusBadRequest)
+		return
+	}
+
+	UserManagement.Rmgrp(req.Name)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Grupo '%s' eliminado exitosamente.", req.Name)))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mkdisk", createDisk)
@@ -436,6 +467,7 @@ func main() {
 	mux.HandleFunc("/mkusr", createUserHandler)
 	mux.HandleFunc("/mkgrp", createGroupHandler)
 	mux.HandleFunc("/rmusr", removeUserHandler)
+	mux.HandleFunc("/rmgrp", removeGroupHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

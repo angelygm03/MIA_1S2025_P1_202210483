@@ -1216,3 +1216,148 @@ func OverwriteFileBlock(inode *DiskStruct.Inode, newData string, file *os.File, 
 
 	return nil
 }
+
+func Rmgrp(name string) {
+	fmt.Printf("Parámetro recibido: name='%s'\n", name)
+
+	// VUser must be root
+	if !IsRootUser() {
+		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
+		fmt.Println("====== End RMGRP ======")
+		return
+	}
+
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // active session
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End RMGRP ======")
+		return
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End RMGRP ======")
+		return
+	}
+	defer file.Close()
+
+	// Read the MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	// Read the Superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // active partition
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Find the users.txt file
+	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	if indexInode == -1 {
+		fmt.Println("Error: No se encontró el archivo users.txt.")
+		fmt.Println("====== End RMGRP ======")
+		return
+	}
+
+	var crrInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+		return
+	}
+
+	// Read the content of the users.txt file
+	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	fmt.Println("Contenido actual del archivo users.txt:")
+	fmt.Println(data)
+
+	// find the group to remove
+	lines := strings.Split(data, "\n")
+	var updatedLines []string
+	groupFound := false
+
+	// Clean the group parameter
+	cleanedName := strings.TrimSpace(name)
+	cleanedName = strings.ReplaceAll(cleanedName, "\u200B", "") // Delete invisible characters
+
+	for _, line := range lines {
+		// Eliminar espacios en blanco adicionales
+		line = strings.TrimSpace(line)
+		line = strings.ReplaceAll(line, "\u200B", "") // Delete invisible characters
+		if line == "" {
+			continue // Ignorar líneas vacías
+		}
+
+		words := strings.Split(line, ",")
+		fmt.Printf("Campos de la línea: %v\n", words)
+
+		if len(words) == 3 {
+			// Clean the group field
+			for i := range words {
+				words[i] = strings.TrimSpace(words[i])
+				words[i] = strings.ReplaceAll(words[i], "\u200B", "")
+			}
+
+			// Compare the group
+			fmt.Printf("Comparando grupo: '%s' con '%s'\n", words[2], cleanedName)
+			if words[1] == "G" && words[2] == cleanedName {
+				// Change the id of the group to 0
+				words[0] = "0"
+				groupFound = true
+			}
+			updatedLines = append(updatedLines, strings.Join(words, ","))
+		} else {
+			updatedLines = append(updatedLines, line)
+		}
+	}
+
+	if !groupFound {
+		fmt.Printf("Error: El grupo '%s' no existe.\n", cleanedName)
+		fmt.Println("====== End RMGRP ======")
+		return
+	}
+
+	// Update the content of the users.txt file
+	newData := strings.Join(updatedLines, "\n")
+
+	// Overwrite the file block with the updated data
+	if err := OverwriteFileBlock(&crrInode, newData, file, tempSuperblock, indexInode); err != nil {
+		fmt.Println("Error: No se pudo actualizar el archivo users.txt:", err)
+		fmt.Println("====== End RMGRP ======")
+		return
+	}
+
+	fmt.Println("Contenido actualizado del archivo users.txt:")
+	fmt.Println(newData)
+
+	fmt.Println("Grupo eliminado exitosamente.")
+	fmt.Println("====== End RMGRP ======")
+}
