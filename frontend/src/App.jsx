@@ -250,7 +250,7 @@ function App() {
             if (param.startsWith("-grp=")) grp = param.split("=")[1].trim();
           });
         
-          // Validar que los parámetros sean obligatorios
+          // User and group are required
           if (!user || !grp) {
             results.push(`Error: Los parámetros 'user' y 'grp' son obligatorios para el comando 'chgrp'.`);
             continue;
@@ -258,6 +258,30 @@ function App() {
         
           requestBody = { user, grp };
           endpoint = "chgrp";
+        
+        } else if (command.startsWith("mkfile")) {
+          let path = "", recursive = false, size = 0, contentPath = "";
+          params.forEach(param => {
+            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
+            if (param === "-r") recursive = true;
+            if (param.startsWith("-size=")) size = parseInt(param.split("=")[1]);
+            if (param.startsWith("-cont=")) contentPath = param.split("=")[1].replace(/"/g, '');
+          });
+        
+          // Path is required
+          if (!path) {
+            results.push(`Error: El parámetro 'path' es obligatorio para el comando 'mkfile'.`);
+            continue;
+          }
+        
+          // size must be a positive number
+          if (size < 0) {
+            results.push(`Error: El tamaño del archivo no puede ser negativo.`);
+            continue;
+          }
+        
+          requestBody = { path, recursive, size, contentPath };
+          endpoint = "mkfile";
         
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);

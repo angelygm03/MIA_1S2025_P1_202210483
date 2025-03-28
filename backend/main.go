@@ -51,7 +51,7 @@ type MkfsRequest struct {
 
 type LoginRequest struct {
 	User     string `json:"user"`
-	Password string `json:"type"`
+	Password string `json:"password"`
 	Id       string `json:"id"`
 }
 
@@ -453,7 +453,6 @@ func removeGroupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Grupo '%s' eliminado exitosamente.", req.Name)))
 }
 
-// Handler para el comando CHGRP
 func changeGroupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -480,11 +479,39 @@ func changeGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Llamar a la función CHGRP en UserManagement
 	UserManagement.Chgrp(req.User, req.Grp)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf("Grupo del usuario '%s' cambiado exitosamente a '%s'.", req.User, req.Grp)))
+}
+
+func createFileHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req struct {
+		Path        string `json:"path"`
+		Recursive   bool   `json:"recursive"`
+		Size        int    `json:"size"`
+		ContentPath string `json:"contentPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para crear archivo:", req)
+
+	UserManagement.Mkfile(req.Path, req.Recursive, req.Size, req.ContentPath)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Archivo '%s' creado exitosamente.", req.Path)))
 }
 
 func main() {
@@ -503,6 +530,7 @@ func main() {
 	mux.HandleFunc("/rmusr", removeUserHandler)
 	mux.HandleFunc("/rmgrp", removeGroupHandler)
 	mux.HandleFunc("/chgrp", changeGroupHandler)
+	mux.HandleFunc("/mkfile", createFileHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

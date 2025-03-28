@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -113,13 +114,32 @@ func Login(user string, password string, id string) {
 
 	// Iterate over the lines to find the user and password
 	for _, line := range lines {
+		// Ignore empty lines
+		line = strings.TrimSpace(line)
+		if line == "" {
+			fmt.Println("Línea ignorada (vacía)")
+			continue
+		}
+
+		fmt.Printf("Procesando línea: %s\n", line)
+
 		words := strings.Split(line, ",")
 
-		if len(words) == 5 {
-			if (strings.Contains(words[3], user)) && (strings.Contains(words[4], password)) {
+		fmt.Printf("Campos parseados: %v\n", words)
+
+		// U = User, G = Group
+		if len(words) == 5 && strings.TrimSpace(words[1]) == "U" {
+			userFromFile := strings.TrimSpace(words[2])     // index 2 for the user
+			passwordFromFile := strings.TrimSpace(words[4]) // index 4 for the password
+
+			fmt.Printf("Comparando usuario: '%s' con '%s', contraseña: '%s' con '%s'\n", userFromFile, user, passwordFromFile, password)
+
+			if userFromFile == user && passwordFromFile == password {
 				login = true
 				break
 			}
+		} else {
+			fmt.Printf("Línea ignorada (no válida): %s\n", line)
 		}
 	}
 
@@ -1365,21 +1385,21 @@ func Rmgrp(name string) {
 func Chgrp(user string, grp string) {
 	fmt.Printf("Parámetros recibidos: user='%s', grp='%s'\n", user, grp)
 
-	// Validar que el usuario sea root
+	// User must be root
 	if !IsRootUser() {
 		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
 		fmt.Println("====== End CHGRP ======")
 		return
 	}
 
-	// Obtener las particiones montadas y encontrar la partición activa
+	// Get mounted partitions
 	mountedPartitions := DiskControl.GetMountedPartitions()
 	var filepath string
 	var partitionFound bool
 
 	for _, partitions := range mountedPartitions {
 		for _, partition := range partitions {
-			if partition.LoggedIn { // Sesión activa
+			if partition.LoggedIn { // active session
 				filepath = partition.Path
 				partitionFound = true
 				fmt.Printf("Partición activa encontrada: %s\n", filepath)
@@ -1397,7 +1417,7 @@ func Chgrp(user string, grp string) {
 		return
 	}
 
-	// Abrir el archivo binario
+	// Open bin file
 	file, err := FileManagement.OpenFile(filepath)
 	if err != nil {
 		fmt.Println("Error: No se pudo abrir el archivo:", err)
@@ -1406,7 +1426,7 @@ func Chgrp(user string, grp string) {
 	}
 	defer file.Close()
 
-	// Leer el Superblock
+	// Read the MBR
 	var TempMBR DiskStruct.MRB
 	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 		fmt.Println("Error: No se pudo leer el MBR:", err)
@@ -1415,7 +1435,7 @@ func Chgrp(user string, grp string) {
 
 	var tempSuperblock DiskStruct.Superblock
 	for i := 0; i < 4; i++ {
-		if TempMBR.Partitions[i].Status[0] == '1' { // Partición activa
+		if TempMBR.Partitions[i].Status[0] == '1' { // Active partition
 			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
 				fmt.Println("Error: No se pudo leer el Superblock:", err)
 				return
@@ -1424,7 +1444,7 @@ func Chgrp(user string, grp string) {
 		}
 	}
 
-	// Buscar el archivo users.txt
+	// Find the users.txt file
 	indexInode := InitSearch("/users.txt", file, tempSuperblock)
 	if indexInode == -1 {
 		fmt.Println("Error: No se encontró el archivo users.txt.")
@@ -1438,12 +1458,12 @@ func Chgrp(user string, grp string) {
 		return
 	}
 
-	// Leer el contenido del archivo users.txt
+	// Read the content of the users.txt file
 	data := GetInodeFileData(crrInode, file, tempSuperblock)
 	fmt.Println("Contenido actual del archivo users.txt:")
 	fmt.Println(data)
 
-	// Verificar si el grupo existe
+	// Verify if the group exists
 	lines := strings.Split(data, "\n")
 	groupExists := false
 	for _, line := range lines {
@@ -1460,13 +1480,13 @@ func Chgrp(user string, grp string) {
 		return
 	}
 
-	// Actualizar el grupo del usuario
+	// Update the group of the user
 	var updatedLines []string
 	userFound := false
 	for _, line := range lines {
 		words := strings.Split(line, ",")
 		if len(words) == 5 && words[1] == "U" && words[2] == user {
-			words[3] = grp // Cambiar el grupo
+			words[3] = grp // Change the group
 			userFound = true
 		}
 		updatedLines = append(updatedLines, strings.Join(words, ","))
@@ -1478,10 +1498,10 @@ func Chgrp(user string, grp string) {
 		return
 	}
 
-	// Actualizar el contenido del archivo users.txt
+	// Update the content of the users.txt file
 	newData := strings.Join(updatedLines, "\n")
 
-	// Sobrescribir el bloque del archivo con los datos actualizados
+	// Overwrite the file block with the updated data
 	if err := OverwriteFileBlock(&crrInode, newData, file, tempSuperblock, indexInode); err != nil {
 		fmt.Println("Error: No se pudo actualizar el archivo users.txt:", err)
 		fmt.Println("====== End CHGRP ======")
@@ -1493,4 +1513,106 @@ func Chgrp(user string, grp string) {
 
 	fmt.Println("Grupo del usuario actualizado exitosamente.")
 	fmt.Println("====== End CHGRP ======")
+}
+
+func Mkfile(path string, recursive bool, size int, contentPath string) {
+	fmt.Printf("Parámetros recibidos: path='%s', recursive=%t, size=%d, contentPath='%s'\n", path, recursive, size, contentPath)
+
+	// Validate that the user is logged in
+	if !IsUserLoggedIn() {
+		fmt.Println("Error: No hay un usuario logueado.")
+		return
+	}
+
+	// Validate that the path is not empty
+	if path == "" {
+		fmt.Println("Error: El parámetro 'path' es obligatorio.")
+		return
+	}
+
+	// Validate that the size is not negative
+	if size < 0 {
+		fmt.Println("Error: El tamaño del archivo no puede ser negativo.")
+		return
+	}
+
+	// If there is a cont path, validate that the file exists
+	var fileContent string
+	if contentPath != "" {
+		// Read the content of the file
+		contentBytes, err := os.ReadFile(contentPath)
+		if err != nil {
+			fmt.Printf("Error: No se pudo leer el archivo en '%s': %v\n", contentPath, err)
+			return
+		}
+		fileContent = string(contentBytes)
+	} else {
+		// Content is generated based on the size
+		fileContent = generateContent(size)
+	}
+
+	// If file already exists, ask for overwrite
+	if fileExists(path) {
+		fmt.Printf("El archivo '%s' ya existe. ¿Desea sobrescribirlo? (yes/no): ", path)
+		var response string
+		fmt.Scanln(&response)
+		if strings.ToLower(response) != "yes" {
+			fmt.Println("Operación cancelada.")
+			return
+		}
+	}
+
+	// Create the file and write the content based on the -r flag
+	if recursive {
+		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+			fmt.Printf("Error: No se pudieron crear las carpetas padres para '%s': %v\n", path, err)
+			return
+		}
+	} else {
+		// Verify that the parent folders exist
+		if _, err := os.Stat(filepath.Dir(path)); os.IsNotExist(err) {
+			fmt.Printf("Error: Las carpetas padres para '%s' no existen. Use el parámetro '-r' para crearlas.\n", path)
+			return
+		}
+	}
+
+	// Create the file and write the content
+	if err := os.WriteFile(path, []byte(fileContent), 0664); err != nil {
+		fmt.Printf("Error: No se pudo crear el archivo '%s': %v\n", path, err)
+		return
+	}
+
+	fmt.Printf("Archivo '%s' creado exitosamente.\n", path)
+}
+
+// Aux func to generate content based on the size
+func generateContent(size int) string {
+	content := ""
+	for i := 0; i < size; i++ {
+		content += fmt.Sprintf("%d", i%10)
+	}
+	return content
+}
+
+// Aux func to validate if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+func IsUserLoggedIn() bool {
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+
+	// Verify if there is an active session
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // find active session
+				return true
+			}
+		}
+	}
+
+	// False if there is no active session
+	return false
 }
