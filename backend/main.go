@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 )
 
 // ====== JSON Request ======
@@ -514,6 +515,39 @@ func createFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Archivo '%s' creado exitosamente.", req.Path)))
 }
 
+func catFileHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Decodify the JSON
+	var files map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&files); err != nil {
+		fmt.Println("Error al decodificar JSON:", err)
+		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("Solicitud recibida para leer archivos:", files)
+
+	// Process the files
+	var results []string
+	for _, path := range files {
+		fmt.Printf("Leyendo archivo: %s\n", path)
+		result := UserManagement.Cat(path)
+		results = append(results, fmt.Sprintf("Archivo %s:\n%s", path, result))
+	}
+
+	response := strings.Join(results, "\n\n")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(response))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mkdisk", createDisk)
@@ -531,6 +565,7 @@ func main() {
 	mux.HandleFunc("/rmgrp", removeGroupHandler)
 	mux.HandleFunc("/chgrp", changeGroupHandler)
 	mux.HandleFunc("/mkfile", createFileHandler)
+	mux.HandleFunc("/cat", catFileHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

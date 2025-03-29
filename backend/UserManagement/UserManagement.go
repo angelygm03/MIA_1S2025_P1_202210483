@@ -1616,3 +1616,208 @@ func IsUserLoggedIn() bool {
 	// False if there is no active session
 	return false
 }
+
+func Cat(filePaths ...string) string {
+	fmt.Println("====== Start CAT ======")
+
+	// User must be logged in
+	if !IsUserLoggedIn() {
+		fmt.Println("Error: No hay un usuario logueado.")
+		fmt.Println("====== End CAT ======")
+		return "Error: No hay un usuario logueado."
+	}
+
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	// Buscar la partición activa
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // Sesión activa
+				filepath = partition.Path
+				partitionFound = true
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		fmt.Println("====== End CAT ======")
+		return "Error: No hay ninguna partición activa."
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End CAT ======")
+		return fmt.Sprintf("Error: No se pudo abrir el archivo: %v", err)
+	}
+	defer file.Close()
+
+	// Read the MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		fmt.Println("====== End CAT ======")
+		return fmt.Sprintf("Error: No se pudo leer el MBR: %v", err)
+	}
+
+	// Read the Superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // active partition
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				fmt.Println("====== End CAT ======")
+				return fmt.Sprintf("Error: No se pudo leer el Superblock: %v", err)
+			}
+			break
+		}
+	}
+
+	// Process each file path
+	var result string
+	for _, filePath := range filePaths {
+		// Find the file in the filesystem
+		indexInode := InitSearch(filePath, file, tempSuperblock)
+		if indexInode == -1 {
+			fmt.Printf("Error: No se encontró el archivo %s.\n", filePath)
+			result += fmt.Sprintf("Error: No se encontró el archivo %s.\n", filePath)
+			continue
+		}
+
+		var crrInode DiskStruct.Inode
+		if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+			fmt.Printf("Error: No se pudo leer el Inodo del archivo %s: %v\n", filePath, err)
+			result += fmt.Sprintf("Error: No se pudo leer el Inodo del archivo %s: %v\n", filePath, err)
+			continue
+		}
+
+		// Verify read permissions
+		if !HasReadPermission(crrInode) {
+			fmt.Printf("Error: No tiene permisos de lectura para el archivo %s.\n", filePath)
+			result += fmt.Sprintf("Error: No tiene permisos de lectura para el archivo %s.\n", filePath)
+			continue
+		}
+
+		// Read the file data
+		data := GetInodeFileData(crrInode, file, tempSuperblock)
+
+		// Clean the data
+		cleanedData := strings.TrimSpace(data)
+		cleanedData = strings.ReplaceAll(cleanedData, "\u0000", "")
+		cleanedData = strings.ReplaceAll(cleanedData, "\u200B", "")
+
+		fmt.Printf("Contenido del archivo %s:\n%s\n", filePath, cleanedData)
+		result += fmt.Sprintf("Contenido del archivo %s:\n%s\n", filePath, cleanedData)
+	}
+
+	fmt.Println("====== End CAT ======")
+	return result
+}
+
+// Aux function to check read permissions
+func HasReadPermission(inode DiskStruct.Inode) bool {
+	// Get the current logged in user
+	currentUser := GetLoggedInUser()
+	if currentUser == nil {
+		fmt.Println("Error: No hay un usuario logueado.")
+		return false
+	}
+
+	// Get permissions from the inode
+	permissions := string(inode.I_perm[:])
+	if len(permissions) != 3 {
+		fmt.Println("Error: Permisos inválidos en el inodo.")
+		return false
+	}
+
+	// Verify permissions
+	userPerm := permissions[0]  // Owner permissions
+	groupPerm := permissions[1] // Group permissions
+	otherPerm := permissions[2] // Other permissions
+
+	// Check if the user is the owner, belongs to the group, or is "others"
+	if inode.I_uid == currentUser.UID {
+		// User is the owner
+		return userPerm == '4' || userPerm == '5' || userPerm == '6' || userPerm == '7'
+	} else if inode.I_gid == currentUser.GID {
+		// User is in the group
+		return groupPerm == '4' || groupPerm == '5' || groupPerm == '6' || groupPerm == '7'
+	} else {
+		// User is "others"
+		return otherPerm == '4' || otherPerm == '5' || otherPerm == '6' || otherPerm == '7'
+	}
+}
+
+// Aux func to get the logged in user
+func GetLoggedInUser() *DiskStruct.User {
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn {
+				// Read the users.txt file to get the logged in user
+				file, err := FileManagement.OpenFile(partition.Path)
+				if err != nil {
+					fmt.Println("Error: No se pudo abrir el archivo:", err)
+					return nil
+				}
+				defer file.Close()
+
+				// Read the MBR
+				var TempMBR DiskStruct.MRB
+				if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+					fmt.Println("Error: No se pudo leer el MBR:", err)
+					return nil
+				}
+
+				// Read the Superblock
+				var tempSuperblock DiskStruct.Superblock
+				if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[0].Start)); err != nil {
+					fmt.Println("Error: No se pudo leer el Superblock:", err)
+					return nil
+				}
+
+				// Find the users.txt file
+				indexInode := InitSearch("/users.txt", file, tempSuperblock)
+				if indexInode == -1 {
+					fmt.Println("Error: No se encontró el archivo users.txt.")
+					return nil
+				}
+
+				// Read the Inode of the users.txt file
+				var crrInode DiskStruct.Inode
+				if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+					fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
+					return nil
+				}
+
+				// Read the data from the file
+				data := GetInodeFileData(crrInode, file, tempSuperblock)
+				lines := strings.Split(data, "\n")
+
+				// Find the logged in user
+				for _, line := range lines {
+					words := strings.Split(line, ",")
+					if len(words) == 5 && words[1] == "U" && words[3] == "root" {
+						return &DiskStruct.User{
+							UID: 1,
+							GID: 1,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}

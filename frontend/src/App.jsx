@@ -283,6 +283,26 @@ function App() {
           requestBody = { path, recursive, size, contentPath };
           endpoint = "mkfile";
         
+        } else if (command.startsWith("cat")) {
+          let files = {};
+          params.forEach(param => {
+            const match = param.match(/^-file(\d+)=(.+)$/);
+            if (match) {
+              const key = `file${match[1]}`; // file followed by a number
+              const value = match[2].replace(/"/g, ''); 
+              files[key] = value;
+            }
+          });
+
+          // At least one file is required
+          if (Object.keys(files).length === 0) {
+            results.push("Error: Debe proporcionar al menos un archivo para el comando 'cat'.");
+            continue;
+          }
+
+          requestBody = files; 
+          endpoint = "cat";
+
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
           continue;

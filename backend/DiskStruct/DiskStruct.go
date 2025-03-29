@@ -104,6 +104,13 @@ type Pointerblock struct {
 	B_pointers [16]int32 // Array of pointers
 }
 
+type User struct {
+	UID   int32  // User ID
+	GID   int32  // Group ID
+	Name  string // Username
+	Group string // Group name
+}
+
 // ==== PRINTS ====
 
 func PrintSuperblock(sb Superblock) {
