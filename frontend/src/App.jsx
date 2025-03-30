@@ -302,6 +302,27 @@ function App() {
 
           requestBody = files; 
           endpoint = "cat";
+        
+        } else if (command.toLowerCase().startsWith("mkdir ")) {
+          let path = "";
+          let p = false;
+        
+          params.forEach(param => {
+            if (param.startsWith("-path=")) {
+              path = param.split("=")[1].replace(/"/g, '');
+            }
+            if (param === "-p") {
+              p = true; // If "-p" is present, set p to true
+            }
+          });
+        
+          if (!path) {
+            results.push(`Error: El parámetro '-path' es obligatorio para el comando mkdir.`);
+            continue;
+          }
+        
+          requestBody = { path, p };
+          endpoint = "mkdir";
 
         } else {
           results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);

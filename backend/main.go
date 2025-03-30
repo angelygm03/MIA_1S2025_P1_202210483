@@ -66,6 +66,11 @@ type MkgrpRequest struct {
 	Name string `json:"name"`
 }
 
+type MkdirRequest struct {
+	Path string `json:"path"`
+	P    bool   `json:"p"`
+}
+
 // ====== CORS ======
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -548,6 +553,30 @@ func catFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(response))
 }
 
+func mkdirHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req MkdirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Error al decodificar la solicitud: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	fmt.Printf("Solicitud recibida para mkdir: path=%s, p=%t\n", req.Path, req.P)
+
+	UserManagement.Mkdir(req.Path, req.P)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Directorio creado exitosamente"))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mkdisk", createDisk)
@@ -566,6 +595,7 @@ func main() {
 	mux.HandleFunc("/chgrp", changeGroupHandler)
 	mux.HandleFunc("/mkfile", createFileHandler)
 	mux.HandleFunc("/cat", catFileHandler)
+	mux.HandleFunc("/mkdir", mkdirHandler)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))

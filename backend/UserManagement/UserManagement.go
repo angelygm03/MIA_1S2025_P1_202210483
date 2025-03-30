@@ -7,9 +7,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func Login(user string, password string, id string) {
@@ -1518,28 +1518,22 @@ func Chgrp(user string, grp string) {
 func Mkfile(path string, recursive bool, size int, contentPath string) {
 	fmt.Printf("Parámetros recibidos: path='%s', recursive=%t, size=%d, contentPath='%s'\n", path, recursive, size, contentPath)
 
-	// Validate that the user is logged in
+	// Validar que haya una sesión activa
 	if !IsUserLoggedIn() {
 		fmt.Println("Error: No hay un usuario logueado.")
 		return
 	}
 
-	// Validate that the path is not empty
+	// Validar que el path no esté vacío
 	if path == "" {
 		fmt.Println("Error: El parámetro 'path' es obligatorio.")
 		return
 	}
 
-	// Validate that the size is not negative
-	if size < 0 {
-		fmt.Println("Error: El tamaño del archivo no puede ser negativo.")
-		return
-	}
-
-	// If there is a cont path, validate that the file exists
+	// Obtener el contenido del archivo
 	var fileContent string
 	if contentPath != "" {
-		// Read the content of the file
+		// Leer el contenido del archivo desde el sistema local
 		contentBytes, err := os.ReadFile(contentPath)
 		if err != nil {
 			fmt.Printf("Error: No se pudo leer el archivo en '%s': %v\n", contentPath, err)
@@ -1547,38 +1541,138 @@ func Mkfile(path string, recursive bool, size int, contentPath string) {
 		}
 		fileContent = string(contentBytes)
 	} else {
-		// Content is generated based on the size
+		// Generar contenido basado en el tamaño
 		fileContent = generateContent(size)
 	}
 
-	// If file already exists, ask for overwrite
-	if fileExists(path) {
-		fmt.Printf("El archivo '%s' ya existe. ¿Desea sobrescribirlo? (yes/no): ", path)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(response) != "yes" {
-			fmt.Println("Operación cancelada.")
-			return
+	// Obtener la partición activa
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn { // Buscar la partición activa
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
 		}
 	}
 
-	// Create the file and write the content based on the -r flag
-	if recursive {
-		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
-			fmt.Printf("Error: No se pudieron crear las carpetas padres para '%s': %v\n", path, err)
-			return
-		}
-	} else {
-		// Verify that the parent folders exist
-		if _, err := os.Stat(filepath.Dir(path)); os.IsNotExist(err) {
-			fmt.Printf("Error: Las carpetas padres para '%s' no existen. Use el parámetro '-r' para crearlas.\n", path)
-			return
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna partición activa.")
+		return
+	}
+
+	// Abrir el archivo binario
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	// Leer el Superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // Partición activa
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
 		}
 	}
 
-	// Create the file and write the content
-	if err := os.WriteFile(path, []byte(fileContent), 0664); err != nil {
-		fmt.Printf("Error: No se pudo crear el archivo '%s': %v\n", path, err)
+	// Dividir el path en carpetas y el nombre del archivo
+	steps := strings.Split(strings.Trim(path, "/"), "/")
+	fileName := steps[len(steps)-1]
+	parentPath := steps[:len(steps)-1]
+
+	// Buscar el inodo raíz
+	var rootInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &rootInode, int64(tempSuperblock.S_inode_start)); err != nil {
+		fmt.Println("Error: No se pudo leer el inodo raíz:", err)
+		return
+	}
+
+	// Navegar por el path para encontrar el inodo del directorio padre
+	currentInode := rootInode
+	for _, step := range parentPath {
+		index := SearchInodeByPath([]string{step}, currentInode, file, tempSuperblock)
+		if index == -1 {
+			// Si no existe y no se usa -r, mostrar error
+			if !recursive {
+				fmt.Printf("Error: La carpeta '%s' no existe y no se usó el parámetro '-r'.\n", step)
+				return
+			}
+
+			// Crear la carpeta si no existe
+			newInodeIndex := FindFreeBlock(tempSuperblock, file)
+			if newInodeIndex == -1 {
+				fmt.Println("Error: No hay bloques libres disponibles para crear la carpeta.")
+				return
+			}
+
+			if err := AddFolderToInode(&currentInode, step, int32(newInodeIndex), file, tempSuperblock); err != nil {
+				fmt.Printf("Error: No se pudo agregar la carpeta '%s': %v\n", step, err)
+				return
+			}
+
+			// Crear el nuevo inodo para la carpeta
+			newInode := DiskStruct.Inode{}
+			initInode(&newInode, time.Now().Format("2006-01-02 15:04:05"))
+			newInode.I_type[0] = '0' // Carpeta
+			if err := FileManagement.WriteObject(file, newInode, int64(tempSuperblock.S_inode_start+int32(newInodeIndex)*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+				fmt.Printf("Error: No se pudo escribir el nuevo inodo para la carpeta '%s': %v\n", step, err)
+				return
+			}
+
+			currentInode = newInode
+		} else {
+			// Leer el inodo correspondiente
+			if err := FileManagement.ReadObject(file, &currentInode, int64(tempSuperblock.S_inode_start+index*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+				fmt.Printf("Error: No se pudo leer el inodo de la carpeta '%s': %v\n", step, err)
+				return
+			}
+		}
+	}
+
+	// Crear el archivo en el directorio padre
+	newInodeIndex := FindFreeBlock(tempSuperblock, file)
+	if newInodeIndex == -1 {
+		fmt.Println("Error: No hay bloques libres disponibles para crear el archivo.")
+		return
+	}
+
+	if err := AddFolderToInode(&currentInode, fileName, int32(newInodeIndex), file, tempSuperblock); err != nil {
+		fmt.Printf("Error: No se pudo agregar el archivo '%s': %v\n", fileName, err)
+		return
+	}
+
+	// Crear el nuevo inodo para el archivo
+	newInode := DiskStruct.Inode{}
+	initInode(&newInode, time.Now().Format("2006-01-02 15:04:05"))
+	newInode.I_type[0] = '1' // Archivo
+	if err := AppendToFileBlock(&newInode, fileContent, file, tempSuperblock); err != nil {
+		fmt.Printf("Error: No se pudo escribir el contenido del archivo '%s': %v\n", fileName, err)
+		return
+	}
+
+	if err := FileManagement.WriteObject(file, newInode, int64(tempSuperblock.S_inode_start+int32(newInodeIndex)*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+		fmt.Printf("Error: No se pudo escribir el nuevo inodo para el archivo '%s': %v\n", fileName, err)
 		return
 	}
 
@@ -1592,12 +1686,6 @@ func generateContent(size int) string {
 		content += fmt.Sprintf("%d", i%10)
 	}
 	return content
-}
-
-// Aux func to validate if a file exists
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
 }
 
 func IsUserLoggedIn() bool {
@@ -1820,4 +1908,187 @@ func GetLoggedInUser() *DiskStruct.User {
 	}
 
 	return nil
+}
+
+func Mkdir(path string, p bool) {
+	fmt.Println("====== Start MKDIR ======")
+	fmt.Printf("Parámetros recibidos: path=%s, p=%t\n", path, p)
+
+	// Get mounted partitions
+	mountedPartitions := DiskControl.GetMountedPartitions()
+	var filepath string
+	var partitionFound bool
+
+	for _, partitions := range mountedPartitions {
+		for _, partition := range partitions {
+			if partition.LoggedIn {
+				filepath = partition.Path
+				partitionFound = true
+				fmt.Printf("Partición activa encontrada: %s\n", filepath)
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Println("Error: No hay ninguna sesión activa.")
+		fmt.Println("====== End MKDIR ======")
+		return
+	}
+
+	// Open bin file
+	file, err := FileManagement.OpenFile(filepath)
+	if err != nil {
+		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Println("====== End MKDIR ======")
+		return
+	}
+	defer file.Close()
+
+	// Read the MBR
+	var TempMBR DiskStruct.MRB
+	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+		fmt.Println("Error: No se pudo leer el MBR:", err)
+		return
+	}
+
+	// Read the Superblock
+	var tempSuperblock DiskStruct.Superblock
+	for i := 0; i < 4; i++ {
+		if TempMBR.Partitions[i].Status[0] == '1' { // Active session
+			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
+				fmt.Println("Error: No se pudo leer el Superblock:", err)
+				return
+			}
+			break
+		}
+	}
+
+	// Split the path into folders
+	steps := strings.Split(strings.Trim(path, "/"), "/")
+	fmt.Printf("Ruta dividida en pasos: %v\n", steps)
+
+	// Find the root inode
+	var rootInode DiskStruct.Inode
+	if err := FileManagement.ReadObject(file, &rootInode, int64(tempSuperblock.S_inode_start)); err != nil {
+		fmt.Println("Error: No se pudo leer el inodo raíz:", err)
+		return
+	}
+
+	// Create the folders
+	currentInode := rootInode
+	for i, step := range steps {
+		fmt.Printf("Procesando carpeta: %s\n", step)
+
+		// Check if the folder already exists
+		index := SearchInodeByPath([]string{step}, currentInode, file, tempSuperblock)
+		if index == -1 {
+			// Error if the folder does not exist and -p is not used
+			if !p && i != len(steps)-1 {
+				fmt.Printf("Error: La carpeta '%s' no existe y no se usó el parámetro -p.\n", step)
+				fmt.Println("====== End MKDIR ======")
+				return
+			}
+
+			// Create the folder if it does not exist
+			newInodeIndex := FindFreeBlock(tempSuperblock, file)
+			if newInodeIndex == -1 {
+				fmt.Println("Error: No hay bloques libres disponibles para crear la carpeta.")
+				fmt.Println("====== End MKDIR ======")
+				return
+			}
+
+			// Update the current inode
+			if err := AddFolderToInode(&currentInode, step, int32(newInodeIndex), file, tempSuperblock); err != nil {
+				fmt.Printf("Error: No se pudo agregar la carpeta '%s': %v\n", step, err)
+				fmt.Println("====== End MKDIR ======")
+				return
+			}
+
+			// Create new inode for the folder
+			newInode := DiskStruct.Inode{}
+			initInode(&newInode, time.Now().Format("2006-01-02 15:04:05"))
+			newInode.I_type[0] = '0' // Carpeta
+			if err := FileManagement.WriteObject(file, newInode, int64(tempSuperblock.S_inode_start+int32(newInodeIndex)*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+				fmt.Printf("Error: No se pudo escribir el nuevo inodo para la carpeta '%s': %v\n", step, err)
+				fmt.Println("====== End MKDIR ======")
+				return
+			}
+
+			// Update the current inode
+			currentInode = newInode
+		} else {
+			// If it exists, read the inode
+			if err := FileManagement.ReadObject(file, &currentInode, int64(tempSuperblock.S_inode_start+index*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+				fmt.Printf("Error: No se pudo leer el inodo de la carpeta '%s': %v\n", step, err)
+				fmt.Println("====== End MKDIR ======")
+				return
+			}
+		}
+	}
+
+	fmt.Println("Carpeta(s) creada(s) exitosamente.")
+	fmt.Println("====== End MKDIR ======")
+}
+
+// Aux func to add a folder to an inode
+func AddFolderToInode(inode *DiskStruct.Inode, folderName string, folderInodeIndex int32, file *os.File, superblock DiskStruct.Superblock) error {
+	var folderBlock DiskStruct.Folderblock
+	blockIndex := -1
+
+	// Find an empty block in the inode
+	for i, block := range inode.I_block {
+		if block == -1 {
+			blockIndex = i
+			break
+		}
+	}
+
+	if blockIndex == -1 {
+		return fmt.Errorf("no hay bloques libres en el inodo")
+	}
+
+	// Find a free block in the superblock
+	newBlockIndex := FindFreeBlock(superblock, file)
+	if newBlockIndex == -1 {
+		return fmt.Errorf("no hay bloques libres disponibles")
+	}
+
+	inode.I_block[blockIndex] = int32(newBlockIndex)
+
+	// Create the folder block
+	copy(folderBlock.B_content[0].B_name[:], folderName)
+	folderBlock.B_content[0].B_inodo = folderInodeIndex
+
+	// Write the folder block to the file
+	position := int64(superblock.S_block_start + int32(newBlockIndex)*int32(binary.Size(DiskStruct.Folderblock{})))
+	if err := FileManagement.WriteObject(file, folderBlock, position); err != nil {
+		return fmt.Errorf("error al escribir el bloque de carpeta: %v", err)
+	}
+
+	// Update the inode size
+	inode.I_size += int32(binary.Size(DiskStruct.Folderblock{}))
+	inodePosition := int64(superblock.S_inode_start + inode.I_block[0]*int32(binary.Size(DiskStruct.Inode{})))
+	if err := FileManagement.WriteObject(file, *inode, inodePosition); err != nil {
+		return fmt.Errorf("error al actualizar el inodo: %v", err)
+	}
+
+	return nil
+}
+
+func initInode(inode *DiskStruct.Inode, date string) {
+	inode.I_uid = 1
+	inode.I_gid = 1
+	inode.I_size = 0
+	copy(inode.I_atime[:], date)
+	copy(inode.I_ctime[:], date)
+	copy(inode.I_mtime[:], date)
+	copy(inode.I_perm[:], "664")
+
+	for i := int32(0); i < 15; i++ {
+		inode.I_block[i] = -1
+	}
 }
