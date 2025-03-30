@@ -137,17 +137,6 @@ function App() {
         
           requestBody = { user, password, id };
           endpoint = "login";
-          
-        } else if (command.startsWith("rep")) {
-          let path = "", name = "", id = ""; 
-          params.forEach(param => {
-            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
-            if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
-            if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
-          });
-        
-          requestBody = { path, name, id };
-          endpoint = "report";
         
         } else if (command.startsWith("mkfs")) {
           let id = "", type = "full"; 
@@ -337,9 +326,12 @@ function App() {
             ...(method === "POST" && { body: JSON.stringify(requestBody) }) // Add body if POST
           };
         
-          const response = await fetch(`http://localhost:8080/${endpoint}`, options);
+          console.log("Enviando solicitud a:", endpoint); // Depuración
+          console.log("Cuerpo de la solicitud:", requestBody); // Depuración
         
+          const response = await fetch(`http://localhost:8080/${endpoint}`, options);
           const text = await response.text();
+          console.log("Respuesta del backend:", text); // Depuración
           results.push(`===============================================\nComando: ${command}\nRespuesta: ${text}\n===============================================\n`);
         }
       }

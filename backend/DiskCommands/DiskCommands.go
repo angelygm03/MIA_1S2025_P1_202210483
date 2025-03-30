@@ -7,6 +7,7 @@ import (
 	"Proyecto1/backend/UserManagement"
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"os"
@@ -288,16 +289,28 @@ func Fn_Rep(input string) {
 
 		switch flagName {
 		case "name", "path", "id", "path_file_ls":
-			fs.Set(flagName, flagValue)
+			err := fs.Set(flagName, flagValue)
+			if err != nil {
+				fmt.Printf("Error al procesar el parámetro '%s': %v\n", flagName, err)
+			}
 		default:
 			fmt.Println("Error: Flag no encontrada:", flagName)
 			fmt.Println("======FIN REP======")
+			return
 		}
+		fmt.Printf("Parámetros procesados: name=%s, path=%s, id=%s, path_file_ls=%s\n", *name, *path, *id, *pathFileLs)
 	}
 
 	// Name, path and id are required
 	if *name == "" || *path == "" || *id == "" {
 		fmt.Println("Error: 'name', 'path' y 'id' son parámetros obligatorios.")
+		fmt.Println("======FIN REP======")
+		return
+	}
+
+	// Validar que el parámetro path_file_ls esté presente si el reporte es de tipo 'file'
+	if *name == "file" && *pathFileLs == "" {
+		fmt.Println("Error: 'path_file_ls' es obligatorio para el reporte 'file'.")
 		fmt.Println("======FIN REP======")
 		return
 	}
@@ -1006,18 +1019,94 @@ func Fn_Rep(input string) {
 		GenerateSuperblockReport(*id, *path)
 		fmt.Println("======FIN REP======")
 
-	// ===== FILE -LS REPORT =====
-	case "file", "ls":
-		// Parameter 'path_file_ls' is required for these reports
+		// ===== FILE -LS REPORT =====
+	case "file":
+		// Param path_file_ls is required
 		if *pathFileLs == "" {
-			fmt.Println("Error: 'path_file_ls' es obligatorio para los reportes 'file' y 'ls'.")
+			fmt.Println("Error: 'path_file_ls' es obligatorio para el reporte 'file'.")
 			fmt.Println("======FIN REP======")
 			return
 		}
 
-		fmt.Println("Generando reporte", *name, "con archivo/carpeta:", *pathFileLs)
-		// ------ TO DO ------
-		// Implement the report generation for 'file' and 'ls'
+		// Verify if the partition is mounted
+		mounted := false
+		var diskPath string
+		for _, partitions := range DiskControl.GetMountedPartitions() {
+			for _, partition := range partitions {
+				if partition.ID == *id {
+					mounted = true
+					diskPath = partition.Path
+					break
+				}
+			}
+			if mounted {
+				break
+			}
+		}
+
+		if !mounted {
+			fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Open bin file
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Printf("Error: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+			fmt.Println("======FIN REP======")
+			return
+		}
+		defer file.Close()
+
+		// Read the MBR
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("Error: No se pudo leer el MBR desde el archivo.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Read the SuperBlock
+		var TemporalSuperBloque DiskStruct.Superblock
+		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[0].Start)); err != nil {
+			fmt.Println("Error al leer el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Find the file of path_file_ls
+		indexInode := UserManagement.InitSearch(*pathFileLs, file, TemporalSuperBloque)
+		if indexInode == -1 {
+			fmt.Printf("Error: No se encontró el archivo especificado en el path: %s.\n", *pathFileLs)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		var crrInode DiskStruct.Inode
+		if err := FileManagement.ReadObject(file, &crrInode, int64(TemporalSuperBloque.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+			fmt.Println("Error al leer el inodo del archivo.")
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		// Get content of the file
+		fileContent := UserManagement.GetInodeFileData(crrInode, file, TemporalSuperBloque)
+		fmt.Printf("Contenido leído del archivo: %s\n", fileContent)
+
+		// Content of the report
+		reportContent := fmt.Sprintf("Reporte FILE\n\nNombre del archivo: %s\nContenido:\n%s", *pathFileLs, fileContent)
+
+		// Create the report
+		err = os.WriteFile(*path, []byte(reportContent), 0644)
+		if err != nil {
+			fmt.Printf("Error al escribir el archivo de reporte: %s\n", err)
+			fmt.Println("======FIN REP======")
+			return
+		}
+
+		fmt.Printf("Reporte FILE generado exitosamente en la ruta: %s\n", *path)
+		fmt.Println("======FIN REP======")
 
 	default:
 		fmt.Println("Error: Tipo de reporte no válido.")
