@@ -12,6 +12,11 @@ function App() {
       
       for (const command of commands) {
         const trimmedCommand = command.trim();
+
+        // Ignore empty lines
+        if (trimmedCommand === "") {
+          continue; // Skip processing this line
+        }
   
         // Check if the line is a comment
         if (trimmedCommand.startsWith("#") || trimmedCommand.startsWith("/")) {
