@@ -9,9 +9,17 @@ function App() {
     try {
       const commands = input.trim().split("\n"); // Commands are separated by lines
       let results = [];
-    
+      
       for (const command of commands) {
-        const params = command.split(" ");
+        const trimmedCommand = command.trim();
+  
+        // Check if the line is a comment
+        if (trimmedCommand.startsWith("#") || trimmedCommand.startsWith("/")) {
+          results.push(trimmedCommand); // Add the comment directly to the results
+          continue; // Skip processing this line as a command
+        }
+  
+        const params = trimmedCommand.split(" ");
         let requestBody = {};
         let endpoint = "";
 
@@ -326,12 +334,12 @@ function App() {
             ...(method === "POST" && { body: JSON.stringify(requestBody) }) // Add body if POST
           };
         
-          console.log("Enviando solicitud a:", endpoint); // Depuración
-          console.log("Cuerpo de la solicitud:", requestBody); // Depuración
+          console.log("Enviando solicitud a:", endpoint);
+          console.log("Cuerpo de la solicitud:", requestBody); 
         
           const response = await fetch(`http://localhost:8080/${endpoint}`, options);
           const text = await response.text();
-          console.log("Respuesta del backend:", text); // Depuración
+          console.log("Respuesta del backend:", text);
           results.push(`===============================================\nComando: ${command}\nRespuesta: ${text}\n===============================================\n`);
         }
       }
@@ -347,8 +355,14 @@ function App() {
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
+      // Validate file extension
+      if (!file.name.endsWith(".smia")) {
+        alert("Solo se permiten archivos con la extensión .smia");
+        return;
+      }
+  
       const reader = new FileReader();
-      reader.onload = (e) => setInput(e.target.result);
+      reader.onload = (e) => setInput(e.target.result); // Set the file content to the input textarea
       reader.readAsText(file);
     }
   };
