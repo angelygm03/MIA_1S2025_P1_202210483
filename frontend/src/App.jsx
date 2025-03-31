@@ -367,6 +367,12 @@ function App() {
     }
   };
 
+    // Function to clear both textareas
+    const handleClear = () => {
+      setInput('');
+      setOutput('');
+    };
+
   return (
     <div className="container">
       <h1>Sistema de Archivos EXT2</h1>
@@ -387,6 +393,7 @@ function App() {
       <div className="buttons">
         <input type="file" accept=".smia" onChange={handleFileUpload} />
         <button onClick={handleExecute}>Ejecutar</button>
+        <button onClick={handleClear}>Limpiar</button>
       </div>
     </div>
   );

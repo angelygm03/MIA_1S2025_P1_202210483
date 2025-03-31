@@ -35,6 +35,8 @@ textarea {
 
 input[type="file"],
 button {
+  background-color: #2d2d2d;
+  color: white;
   padding: 10px 50px;
   font-size: 16px; 
   border: 1px;
@@ -42,3 +44,11 @@ button {
   cursor: pointer; 
 }
 
+input[type="file"]:hover {
+  background-color: #2f728f; 
+}
+
+button:hover {
+  background-color: #2f728f; 
+  color: #e0e0e0; 
+}
