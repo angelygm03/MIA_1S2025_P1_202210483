@@ -1,0 +1,21 @@
+digraph G {
+	node [shape=none];
+	graph [splines=false];
+	subgraph cluster_disk {
+		label="Reporte Disco.mia";
+		style=rounded;
+		color=black;
+		table [label=<
+			<TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="10">
+			<TR>
+			<TD>MBR (159 bytes)</TD>
+			<TD>Primaria<br/>Part11<br/>20.00% del disco</TD>
+			<TD>Primaria<br/>Part12<br/>20.00% del disco</TD>
+			<TD>Primaria<br/>Part13<br/>20.00% del disco</TD>
+			<TD>Primaria<br/>Part14<br/>20.00% del disco</TD>
+			<TD>Libre<br/>20.00% del disco</TD>
+			</TR>
+			</TABLE>
+>];
+	}
+}

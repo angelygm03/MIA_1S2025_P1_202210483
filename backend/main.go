@@ -134,7 +134,7 @@ func removeDisk(w http.ResponseWriter, r *http.Request) {
 	// Verify if the file exists
 	if _, err := os.Stat(req.Path); os.IsNotExist(err) {
 		fmt.Println("Error: El archivo no existe en la ruta especificada")
-		http.Error(w, "Error: Disk not found", http.StatusNotFound)
+		http.Error(w, "Disk not found", http.StatusNotFound)
 		return
 	}
 
@@ -170,10 +170,16 @@ func createPartition(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Solicitud recibida para crear partición:", req)
 
 	// Call the function to create the partition
-	DiskControl.Fdisk(req.Size, req.Path, req.Name, req.Unit, req.Type, req.Fit)
+	result := DiskControl.Fdisk(req.Size, req.Path, req.Name, req.Unit, req.Type, req.Fit)
+
+	// Check if the result contains an error message
+	if strings.HasPrefix(result, "Error:") {
+		http.Error(w, result, http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Partition created successfully at %s", req.Path)))
+	w.Write([]byte(result))
 }
 
 func mountPartition(w http.ResponseWriter, r *http.Request) {
@@ -192,13 +198,19 @@ func mountPartition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println("Solicitud recibida para crear partición:", req)
+	fmt.Println("Solicitud recibida para montar partición:", req)
 
-	// Call the function to create the partition
-	DiskControl.Mount(req.Path, req.Name)
+	//Call the function to mount the partition
+	message := DiskControl.Mount(req.Path, req.Name)
+
+	// Si el mensaje comienza con "Error:", envíalo como un error
+	if strings.HasPrefix(message, "Error") {
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Partition mounted successfully at %s", req.Path)))
+	w.Write([]byte(message))
 }
 
 func generateReport(w http.ResponseWriter, r *http.Request) {
@@ -213,27 +225,27 @@ func generateReport(w http.ResponseWriter, r *http.Request) {
 
 	var req ReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, "Error: Solicitud inválida", http.StatusBadRequest)
 		return
 	}
 
 	fmt.Println("Solicitud recibida para generar reporte:")
 	fmt.Printf("Name: %s, Path: %s, ID: %s, PathFileLs: %s\n", req.Name, req.Path, req.Id, req.PathFileLs)
 
-	if req.Id == "" {
-		http.Error(w, "Error: 'id' es un parámetro obligatorio", http.StatusBadRequest)
-		return
-	}
-
 	reportCommand := fmt.Sprintf("-name=%s -path=%s -id=%s", req.Name, req.Path, req.Id)
 	if req.PathFileLs != "" {
 		reportCommand += fmt.Sprintf(" -path_file_ls=%s", req.PathFileLs)
 	}
 
-	DiskCommands.Fn_Rep(reportCommand)
+	result := DiskCommands.Fn_Rep(reportCommand)
+
+	if strings.HasPrefix(result, "Error:") {
+		http.Error(w, result, http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Reporte generado exitosamente en %s", req.Path)))
+	w.Write([]byte(result))
 }
 
 func formatMkfs(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +291,13 @@ func loginUser(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Solicitud recibida para loggear usuario:", req)
 
-	// Call the function to login the user
+	// Verify if the user is already logged in
+	if UserManagement.IsUserLoggedIn() {
+		http.Error(w, "Ya hay un usuario logueado.", http.StatusConflict)
+		return
+	}
+
+	// Call the function to log in the user
 	UserManagement.Login(req.User, req.Password, req.Id)
 
 	w.WriteHeader(http.StatusOK)
@@ -298,11 +316,15 @@ func logoutUser(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Solicitud recibida para desloguear usuario")
 
-	// Call the function to logout the user
-	UserManagement.Logout()
+	result := UserManagement.Logout()
+
+	if strings.HasPrefix(result, "Error:") {
+		http.Error(w, result, http.StatusConflict)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("User logged out successfully"))
+	w.Write([]byte(result))
 }
 
 func getMountedPartitionsHandler(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +361,6 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decodify the JSON
 	var req MkusrRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
@@ -348,7 +369,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Solicitud recibida para crear usuario:", req)
 
-	// Validate the request
+	// Validate the parameters
 	if req.User == "" || req.Pass == "" || req.Grp == "" {
 		http.Error(w, "Error: Los parámetros 'user', 'pass' y 'grp' son obligatorios.", http.StatusBadRequest)
 		return
@@ -359,12 +380,14 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	command := fmt.Sprintf("-user=%s -pass=%s -grp=%s", req.User, req.Pass, req.Grp)
-	DiskCommands.AnalyzeCommand("mkusr", command)
+	result := UserManagement.Mkusr(req.User, req.Pass, req.Grp)
+	if strings.HasPrefix(result, "Error:") {
+		http.Error(w, result, http.StatusConflict)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Usuario '%s' creado exitosamente en el grupo '%s'", req.User, req.Grp)))
-	UserManagement.PrintUsersFile()
+	w.Write([]byte(result))
 }
 
 func createGroupHandler(w http.ResponseWriter, r *http.Request) {
@@ -379,22 +402,18 @@ func createGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req MkgrpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Solicitud inválida", http.StatusBadRequest)
+		http.Error(w, "Error: Solicitud inválida.", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Println("Solicitud recibida para crear grupo:", req)
-
-	if req.Name == "" {
-		http.Error(w, "Error: El parámetro 'name' es obligatorio.", http.StatusBadRequest)
+	result := UserManagement.Mkgrp(req.Name)
+	if strings.HasPrefix(result, "Error:") {
+		http.Error(w, result, http.StatusConflict)
 		return
 	}
-
-	// Call the function to create the group
-	UserManagement.Mkgrp(req.Name)
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Grupo '%s' creado exitosamente.", req.Name)))
+	w.Write([]byte(result))
 }
 
 func removeUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -579,6 +598,10 @@ func mkdirHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Server is running"))
+	})
 	mux.HandleFunc("/mkdisk", createDisk)
 	mux.HandleFunc("/rmdisk", removeDisk)
 	mux.HandleFunc("/fdisk", createPartition)

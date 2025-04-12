@@ -153,7 +153,7 @@ func Rmdisk(path string) {
 	fmt.Println("======FIN RMDISK======")
 }
 
-func Fdisk(size int, path string, name string, unit string, type_ string, fit string) {
+func Fdisk(size int, path string, name string, unit string, type_ string, fit string) string {
 	fmt.Println("======Start FDISK======")
 	fmt.Println("Size:", size)
 	fmt.Println("Path:", path)
@@ -165,7 +165,7 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	// Fit bf, ff, wf
 	if fit != "bf" && fit != "ff" && fit != "wf" {
 		fmt.Println("Error: Fit must be 'bf', 'ff', or 'wf'")
-		return
+		return "Fit debe ser 'bf', 'ff', o 'wf'"
 	}
 	// If fit is empty, set it to "w"
 	if fit == "" {
@@ -175,13 +175,13 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	// Size must be greater than 0
 	if size <= 0 {
 		fmt.Println("Error: Size must be greater than 0")
-		return
+		return "Size debe ser mayor a cero"
 	}
 
 	// Validate unit b, k or m
 	if unit != "b" && unit != "k" && unit != "m" {
 		fmt.Println("Error: Unit must be 'b', 'k', or 'm'")
-		return
+		return "Unit debe ser 'b', 'k', o 'm'"
 	}
 
 	// If unit is empty, set it to "k"
@@ -192,8 +192,9 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	// Validate type p, e or l
 	if type_ != "p" && type_ != "e" && type_ != "l" {
 		fmt.Println("Error: Type must be 'p', 'e', or 'l'")
-		return
+		return "Type debe ser 'p', 'e', o 'l'"
 	}
+
 	// If type is empty, set it to "p"
 	if type_ == "" {
 		type_ = "p"
@@ -210,14 +211,14 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	file, err := FileManagement.OpenFile(path)
 	if err != nil {
 		fmt.Println("Error: Could not open file at path:", path)
-		return
+		return fmt.Sprintf("No se encontró el archivo: %s", path)
 	}
 
 	var TempMBR DiskStruct.MRB
 	// Read the object from the binary file
 	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 		fmt.Println("Error: Could not read MBR from file")
-		return
+		return "No se pudo leer el MBR del archivo"
 	}
 
 	// Print the object
@@ -247,25 +248,25 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	// Validate that there are not more than 4 partitions
 	if totalPartitions >= 4 {
 		fmt.Println("Error: No se pueden crear más de 4 particiones primarias o extendidas en total.")
-		return
+		return "No se pueden crear más de 4 particiones primarias o extendidas en total."
 	}
 
 	// Validate that exits an extended partition
 	if type_ == "e" && extendedCount > 0 {
 		fmt.Println("Error: Solo se permite una partición extendida por disco.")
-		return
+		return "Solo se permite una partición extendida por disco."
 	}
 
 	// If theres no extended partition, a logical partition can't be created
 	if type_ == "l" && extendedCount == 0 {
 		fmt.Println("Error: No se puede crear una partición lógica sin una partición extendida.")
-		return
+		return "No se puede crear una partición lógica sin una partición extendida."
 	}
 
 	// Partition size can't be greater than the disk size
 	if usedSpace+int32(size) > TempMBR.MbrSize {
 		fmt.Println("Error: No hay suficiente espacio en el disco para crear esta partición.")
-		return
+		return "No hay suficiente espacio en el disco para crear esta partición."
 	}
 
 	// Starting position of the new partition
@@ -348,14 +349,14 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	// Overwrite the MBR
 	if err := FileManagement.WriteObject(file, TempMBR, 0); err != nil {
 		fmt.Println("Error: Could not write MBR to file")
-		return
+		return "No se pudo escribir el MBR en el archivo"
 	}
 
 	var TempMBR2 DiskStruct.MRB
 	// Verify the MBR was written correctly
 	if err := FileManagement.ReadObject(file, &TempMBR2, 0); err != nil {
 		fmt.Println("Error: Could not read MBR from file after writing")
-		return
+		return "No se pudo leer el MBR del archivo después de escribir"
 	}
 
 	DiskStruct.PrintMBR(TempMBR2)
@@ -385,6 +386,7 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	defer file.Close()
 
 	fmt.Println("======FIN FDISK======")
+	return fmt.Sprintf("Partition created successfully at %s.", path)
 }
 
 func PrintMountedPartitions() {
@@ -409,13 +411,13 @@ func PrintMountedPartitions() {
 	fmt.Println("")
 }
 
-func Mount(path string, name string) {
+func Mount(path string, name string) string {
 	fmt.Println("======Start MOUNT======")
 	file, err := FileManagement.OpenFile(path)
 	if err != nil {
-		fmt.Println("Error: No se pudo abrir el archivo en la ruta:", path)
+		fmt.Println("No se pudo abrir el archivo en la ruta:", path)
 		fmt.Println("======FIN MOUNT======")
-		return
+		return fmt.Sprintf("No se pudo abrir el archivo en la ruta: %s", path)
 	}
 	defer file.Close()
 
@@ -423,7 +425,7 @@ func Mount(path string, name string) {
 	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 		fmt.Println("Error: No se pudo leer el MBR desde el archivo")
 		fmt.Println("======FIN MOUNT======")
-		return
+		return "No se pudo leer el MBR desde el archivo"
 	}
 
 	fmt.Printf("Buscando partición con nombre: '%s'\n", name)
@@ -450,14 +452,14 @@ func Mount(path string, name string) {
 	if !partitionFound {
 		fmt.Println("Error: Partición no encontrada o no es una partición primaria")
 		fmt.Println("======FIN MOUNT======")
-		return
+		return "Partición no encontrada o no es una partición primaria"
 	}
 
 	// Verify if the partition is already mounted (status = 1)
 	if partition.Status[0] == '1' {
 		fmt.Println("Error: La partición ya está montada")
 		fmt.Println("======FIN MOUNT======")
-		return
+		return "La partición ya está montada, no se puede montar nuevamente."
 	}
 
 	// Generate a unique ID for the partition
@@ -481,17 +483,17 @@ func Mount(path string, name string) {
 		letter = mountedPartitionsInDisk[0].ID[len(mountedPartitionsInDisk[0].ID)-1]
 	}
 
-	// Increment the correlative number of the partition
+	// Increment the correlative number of the partition based on the number of mounted partitions
 	carnet := "202210483"
-	lastTwoDigits := carnet[len(carnet)-2:] // Last two digits of my carnet
-	partitionID := fmt.Sprintf("%s%d%c", lastTwoDigits, partitionIndex+1, letter)
+	lastTwoDigits := carnet[len(carnet)-2:]             // Last two digits of my carnet
+	partitionNumber := len(mountedPartitionsInDisk) + 1 // Use the count of mounted partitions in the disk
+	partitionID := fmt.Sprintf("%s%d%c", lastTwoDigits, partitionNumber, letter)
 
 	// Update the partition status to '1' (mounted)
 	partition.Status[0] = '1'
 	copy(partition.Id[:], partitionID)
 	TempMBR.Partitions[partitionIndex] = partition
 	mountedPartitions[diskID] = append(mountedPartitions[diskID], MountedPartition{
-		// Save the mounted partition in the map: changes in ID and status '1'
 		Path:   path,
 		Name:   name,
 		ID:     partitionID,
@@ -502,7 +504,7 @@ func Mount(path string, name string) {
 	if err := FileManagement.WriteObject(file, TempMBR, 0); err != nil {
 		fmt.Println("Error: No se pudo sobrescribir el MBR en el archivo")
 		fmt.Println("======FIN MOUNT======")
-		return
+		return "No se pudo sobrescribir el MBR en el archivo"
 	}
 
 	fmt.Printf("Partición montada con ID: %s\n", partitionID)
@@ -513,7 +515,7 @@ func Mount(path string, name string) {
 	fmt.Println("")
 	PrintMountedPartitions()
 	fmt.Println("======FIN MOUNT======")
-
+	return fmt.Sprintf("Partition mounted successfully with ID: %s", partitionID)
 }
 
 // Get the last disk ID

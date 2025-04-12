@@ -1,0 +1,17 @@
+digraph G {
+node [shape=none];
+fontname="Courier New";
+inode1 [label=<
+<table border='0' cellborder='1' cellspacing='0' cellpadding='10'>
+<tr><td colspan='2' bgcolor='lightgreen'>Inode 1</td></tr>
+<tr><td>UID</td><td>1</td></tr>
+<tr><td>GID</td><td>1</td></tr>
+<tr><td>Size</td><td>535</td></tr>
+<tr><td>ATime</td><td>2025-04-03 09:23:26</td></tr>
+<tr><td>CTime</td><td>2025-04-03 09:23:26</td></tr>
+<tr><td>MTime</td><td>2025-04-03 09:23:26</td></tr>
+<tr><td>Blocks</td><td>[1 2 3 4 5 6 7 8 9 -1 -1 -1 -1 -1 -1]</td></tr>
+<tr><td>Perms</td><td>664</td></tr>
+</table>
+ >];
+}

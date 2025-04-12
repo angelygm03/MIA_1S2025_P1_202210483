@@ -186,7 +186,7 @@ func GenerateDiskReport(mbr DiskStruct.MRB, ebrs []DiskStruct.EBR, outputPath st
 	content += "\tnode [shape=none];\n"
 	content += "\tgraph [splines=false];\n"
 	content += "\tsubgraph cluster_disk {\n"
-	content += "\t\tlabel=\"Disco1.dsk\";\n"
+	content += "\t\tlabel=\"Reporte Disco.mia\";\n"
 	content += "\t\tstyle=rounded;\n"
 	content += "\t\tcolor=black;\n"
 

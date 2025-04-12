@@ -406,7 +406,7 @@ func SearchInodeByPath(StepsPath []string, Inode DiskStruct.Inode, file *os.File
 }
 
 // Logout function
-func Logout() {
+func Logout() string {
 	fmt.Println("====== Start LOGOUT ======")
 
 	// Get the mounted partitions
@@ -432,7 +432,7 @@ func Logout() {
 	if !sessionActive {
 		fmt.Println("Error: No hay ninguna sesión activa.")
 		fmt.Println("====== End LOGOUT ======")
-		return
+		return "No hay ninguna sesión activa."
 	}
 
 	// Logout the active session
@@ -440,6 +440,7 @@ func Logout() {
 	fmt.Println("Sesión cerrada con éxito en la partición:", activePartitionID)
 
 	fmt.Println("====== End LOGOUT ======")
+	return "Logged out successfully."
 }
 
 // Get the data from an Inode
@@ -567,22 +568,27 @@ func min(a, b int) int {
 	return b
 }
 
-func Mkusr(user string, pass string, grp string) {
+func Mkusr(user string, pass string, grp string) string {
 	fmt.Printf("Parámetros recibidos: user=%s, pass=%s, grp=%s\n", user, pass, grp)
 
 	// Validate that the user is root
 	if !IsRootUser() {
 		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "Solo el usuario root puede ejecutar este comando."
 	}
 
 	// Validate the length of the parameters
 	if len(user) > 10 || len(pass) > 10 || len(grp) > 10 {
 		fmt.Println("Error: Los parámetros 'user', 'pass' y 'grp' no pueden exceder los 10 caracteres.")
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "Los parámetros 'user', 'pass' y 'grp' no pueden exceder los 10 caracteres."
 	}
+
+	// Clean the parameters
+	user = strings.TrimSpace(strings.ReplaceAll(user, "\"", ""))
+	pass = strings.TrimSpace(strings.ReplaceAll(pass, "\"", ""))
+	grp = strings.TrimSpace(strings.ReplaceAll(grp, "\"", ""))
 
 	// Get mounted partitions and find the active partition
 	mountedPartitions := DiskControl.GetMountedPartitions()
@@ -606,7 +612,7 @@ func Mkusr(user string, pass string, grp string) {
 	if !partitionFound {
 		fmt.Println("Error: No hay ninguna partición activa.")
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "No hay ninguna partición activa."
 	}
 
 	// Open bin file
@@ -614,7 +620,7 @@ func Mkusr(user string, pass string, grp string) {
 	if err != nil {
 		fmt.Println("Error: No se pudo abrir el archivo:", err)
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "No se pudo abrir el archivo."
 	}
 	defer file.Close()
 
@@ -622,7 +628,7 @@ func Mkusr(user string, pass string, grp string) {
 	var TempMBR DiskStruct.MRB
 	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 		fmt.Println("Error: No se pudo leer el MBR:", err)
-		return
+		return "Error al leer el MBR."
 	}
 
 	// Read the Superblock
@@ -631,7 +637,7 @@ func Mkusr(user string, pass string, grp string) {
 		if TempMBR.Partitions[i].Status[0] == '1' { // Active partition
 			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
 				fmt.Println("Error: No se pudo leer el Superblock:", err)
-				return
+				return "Error al leer el Superblock."
 			}
 			break
 		}
@@ -642,13 +648,13 @@ func Mkusr(user string, pass string, grp string) {
 	if indexInode == -1 {
 		fmt.Println("Error: No se encontró el archivo users.txt.")
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "No se encontró el archivo users.txt."
 	}
 
 	var crrInode DiskStruct.Inode
 	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
 		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
-		return
+		return "Error al leer el Inodo del archivo users.txt."
 	}
 
 	// Read the content of the users.txt file
@@ -671,16 +677,14 @@ func Mkusr(user string, pass string, grp string) {
 	if !groupExists {
 		fmt.Println("Error: El grupo especificado no existe.")
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "El grupo especificado no existe."
 	}
 
 	// If the user already exists, return an error
 	for _, line := range lines {
 		words := strings.Split(line, ",")
-		if len(words) == 5 && words[1] == "U" && words[3] == user {
-			fmt.Println("Error: El usuario especificado ya existe.")
-			fmt.Println("====== End MKUSR ======")
-			return
+		if len(words) == 5 && strings.TrimSpace(words[1]) == "U" && strings.TrimSpace(words[2]) == user {
+			return fmt.Sprintf("El usuario '%s' ya existe.", user)
 		}
 	}
 
@@ -690,7 +694,7 @@ func Mkusr(user string, pass string, grp string) {
 		if err := InitializeUserIDCounter(file, tempSuperblock); err != nil {
 			fmt.Println(err)
 			fmt.Println("====== End MKUSR ======")
-			return
+			return "Error al inicializar el contador de ID de usuario."
 		}
 	}
 
@@ -703,11 +707,12 @@ func Mkusr(user string, pass string, grp string) {
 	if err := AppendToFileBlock(&crrInode, newUser, file, tempSuperblock); err != nil {
 		fmt.Println("Error: No se pudo agregar el nuevo usuario al archivo users.txt:", err)
 		fmt.Println("====== End MKUSR ======")
-		return
+		return "Error al agregar el nuevo usuario al archivo users.txt."
 	}
 
 	fmt.Println("Usuario creado exitosamente.")
 	fmt.Println("====== End MKUSR ======")
+	return "User created successfully."
 }
 
 // Aux fun to verify if the user is root or not
@@ -931,14 +936,14 @@ func InitializeGroupIDCounter(file *os.File, tempSuperblock DiskStruct.Superbloc
 	return nil
 }
 
-func Mkgrp(name string) {
+func Mkgrp(name string) string {
 	fmt.Printf("Parámetro recibido: name=%s\n", name)
 
 	// User must be root
 	if !IsRootUser() {
 		fmt.Println("Error: Solo el usuario root puede ejecutar este comando.")
 		fmt.Println("====== End MKGRP ======")
-		return
+		return "Error: Solo el usuario root puede ejecutar este comando."
 	}
 
 	// Get mounted partitions
@@ -963,7 +968,7 @@ func Mkgrp(name string) {
 	if !partitionFound {
 		fmt.Println("Error: No hay ninguna partición activa.")
 		fmt.Println("====== End MKGRP ======")
-		return
+		return "Error: No hay ninguna partición activa."
 	}
 
 	// Open bin file
@@ -971,7 +976,7 @@ func Mkgrp(name string) {
 	if err != nil {
 		fmt.Println("Error: No se pudo abrir el archivo:", err)
 		fmt.Println("====== End MKGRP ======")
-		return
+		return "Error: No se pudo abrir el archivo:"
 	}
 	defer file.Close()
 
@@ -979,7 +984,7 @@ func Mkgrp(name string) {
 	var TempMBR DiskStruct.MRB
 	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 		fmt.Println("Error: No se pudo leer el MBR:", err)
-		return
+		return "Error: No se pudo leer el MBR:"
 	}
 
 	// Read the Superblock
@@ -988,7 +993,7 @@ func Mkgrp(name string) {
 		if TempMBR.Partitions[i].Status[0] == '1' { // Active partition
 			if err := FileManagement.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[i].Start)); err != nil {
 				fmt.Println("Error: No se pudo leer el Superblock:", err)
-				return
+				return "Error: No se pudo leer el Superblock"
 			}
 			break
 		}
@@ -999,13 +1004,13 @@ func Mkgrp(name string) {
 	if indexInode == -1 {
 		fmt.Println("Error: No se encontró el archivo users.txt.")
 		fmt.Println("====== End MKGRP ======")
-		return
+		return "Error: No se encontró el archivo users.txt."
 	}
 
 	var crrInode DiskStruct.Inode
 	if err := FileManagement.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
 		fmt.Println("Error: No se pudo leer el Inodo del archivo users.txt:", err)
-		return
+		return "Error: No se pudo leer el Inodo del archivo users.txt"
 	}
 
 	// Read the content of the users.txt file
@@ -1020,7 +1025,7 @@ func Mkgrp(name string) {
 		if len(words) == 3 && words[1] == "G" && words[2] == name {
 			fmt.Println("Error: El grupo especificado ya existe.")
 			fmt.Println("====== End MKGRP ======")
-			return
+			return "El grupo especificado ya existe."
 		}
 	}
 
@@ -1029,7 +1034,7 @@ func Mkgrp(name string) {
 		if err := InitializeGroupIDCounter(file, tempSuperblock); err != nil {
 			fmt.Println(err)
 			fmt.Println("====== End MKGRP ======")
-			return
+			return "Error: No se pudo inicializar el contador de IDs de grupos."
 		}
 	}
 
@@ -1043,11 +1048,12 @@ func Mkgrp(name string) {
 	if err := AppendToFileBlock(&crrInode, newGroup, file, tempSuperblock); err != nil {
 		fmt.Println("Error: No se pudo agregar el nuevo grupo al archivo users.txt:", err)
 		fmt.Println("====== End MKGRP ======")
-		return
+		return "Error: No se pudo agregar el nuevo grupo al archivo users.txt"
 	}
 
 	fmt.Println("Grupo creado exitosamente.")
 	fmt.Println("====== End MKGRP ======")
+	return "Group created successfully."
 }
 
 func Rmusr(user string) {

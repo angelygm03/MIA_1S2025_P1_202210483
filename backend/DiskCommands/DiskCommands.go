@@ -274,7 +274,7 @@ func fn_mount(params string) {
 	DiskControl.Mount(*path, lowercaseName)
 }
 
-func Fn_Rep(input string) {
+func Fn_Rep(input string) string {
 	fmt.Println("======Start REP======")
 	fs := flag.NewFlagSet("rep", flag.ExitOnError)
 	name := fs.String("name", "", "Nombre del reporte a generar (mbr, disk, inode, block, bm_inode, bm_block, sb, file, ls)")
@@ -284,7 +284,7 @@ func Fn_Rep(input string) {
 
 	matches := re.FindAllStringSubmatch(input, -1)
 	for _, match := range matches {
-		flagName := match[1]
+		flagName := strings.ToLower(match[1])
 		flagValue := strings.Trim(match[2], "\"")
 
 		switch flagName {
@@ -292,11 +292,12 @@ func Fn_Rep(input string) {
 			err := fs.Set(flagName, flagValue)
 			if err != nil {
 				fmt.Printf("Error al procesar el parámetro '%s': %v\n", flagName, err)
+				return fmt.Sprintf("Error al procesar el parámetro '%s': %v", flagName, err)
 			}
 		default:
 			fmt.Println("Error: Flag no encontrada:", flagName)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error al procesar el parámetro " + flagName
 		}
 		fmt.Printf("Parámetros procesados: name=%s, path=%s, id=%s, path_file_ls=%s\n", *name, *path, *id, *pathFileLs)
 	}
@@ -305,14 +306,21 @@ func Fn_Rep(input string) {
 	if *name == "" || *path == "" || *id == "" {
 		fmt.Println("Error: 'name', 'path' y 'id' son parámetros obligatorios.")
 		fmt.Println("======FIN REP======")
-		return
+		return "Error: 'name', 'path' y 'id' son parámetros obligatorios."
 	}
 
-	// Validar que el parámetro path_file_ls esté presente si el reporte es de tipo 'file'
+	// Parameter path_file_ls is required for file report
 	if *name == "file" && *pathFileLs == "" {
 		fmt.Println("Error: 'path_file_ls' es obligatorio para el reporte 'file'.")
 		fmt.Println("======FIN REP======")
-		return
+		return "Error: 'path_file_ls' es obligatorio para el reporte 'file'."
+	}
+
+	// ID must be valid
+	if strings.Contains(*id, "x") || len(*id) < 3 {
+		fmt.Printf("Error: El ID '%s' no es válido. Debe seguir el formato correcto.\n", *id)
+		fmt.Println("======FIN REP======")
+		return "El ID no es válido. Debe seguir el formato correcto."
 	}
 
 	// Verifying if the partition is mounted
@@ -331,7 +339,7 @@ func Fn_Rep(input string) {
 	if !mounted {
 		fmt.Println("Error: La partición con ID", *id, "no está montada.")
 		fmt.Println("======FIN REP======")
-		return
+		return "La partición con ID " + *id + " no está montada."
 	}
 
 	// Creating the reports directory if it doesn't exist
@@ -340,39 +348,39 @@ func Fn_Rep(input string) {
 	if err != nil {
 		fmt.Println("Error al crear la carpeta:", reportsDir)
 		fmt.Println("======FIN REP======")
-		return
+		return "Error al crear la carpeta: " + reportsDir
 	}
 
 	switch *name {
 
 	// ===== MBR REPORT =====
 	case "mbr":
-		// Crear el directorio si no existe
+		// Create the dir if it doesnt exist
 		dir := filepath.Dir(*path)
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			err = os.MkdirAll(dir, 0755) // Crear el directorio con permisos 0755
+			err = os.MkdirAll(dir, 0755) // Dir with 755 permission
 			if err != nil {
 				fmt.Printf("Error al crear el directorio: %v\n", err)
 				fmt.Println("======FIN REP======")
-				return
+				return "Error al crear el directorio: " + dir
 			}
 		}
 
-		// Abrir el archivo binario del disco montado
+		// Open bin file
 		file, err := FileManagement.OpenFile(diskPath)
 		if err != nil {
 			fmt.Println("Error: No se pudo abrir el archivo en la ruta:", diskPath)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
 		}
 		defer file.Close()
 
-		// Leer el objeto MBR desde el archivo binario
+		// Read the MBR
 		var TempMBR DiskStruct.MRB
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("Error: No se pudo leer el MBR desde el archivo")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el MBR desde el archivo"
 		}
 
 		// Content of dot file
@@ -405,7 +413,7 @@ func Fn_Rep(input string) {
 					if err := FileManagement.ReadObject(file, &EBR, int64(Particion.Start)); err != nil {
 						fmt.Println("Error al leer el EBR desde el archivo")
 						fmt.Println("======FIN REP======")
-						return
+						return "Error al leer el EBR desde el archivo"
 					}
 					if EBR.PartSize != 0 {
 						fmt.Fprintln(&dot, "<tr><td colspan='2' bgcolor='Lightcoral'>EBRs</td></tr>")
@@ -423,7 +431,7 @@ func Fn_Rep(input string) {
 							if err := FileManagement.ReadObject(file, &EBR, int64(EBR.PartNext)); err != nil {
 								fmt.Println("Error al leer el siguiente EBR")
 								fmt.Println("======FIN REP======")
-								return
+								return "Error al leer el siguiente EBR"
 							}
 						}
 					}
@@ -441,7 +449,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("Error al escribir el archivo DOT.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error al escribir el archivo DOT."
 		}
 
 		// Generate the report
@@ -452,7 +460,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("Error al ejecutar Graphviz.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error al ejecutar Graphviz"
 		}
 
 		fmt.Printf("Reporte MBR generado con éxito en la ruta: %s\n", *path)
@@ -466,7 +474,7 @@ func Fn_Rep(input string) {
 			if err != nil {
 				fmt.Printf("Error al crear el directorio: %v\n", err)
 				fmt.Println("======FIN REP======")
-				return
+				return "Error al crear el directorio: " + dir
 			}
 		}
 		// Open the binary file of the mounted disk
@@ -474,7 +482,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("Error: No se pudo abrir el archivo en la ruta:", diskPath)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
 		}
 		defer file.Close()
 
@@ -483,7 +491,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("Error: No se pudo leer el MBR desde el archivo")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el MBR desde el archivo"
 		}
 
 		// Read and process the EBRs if there are extended partitions
@@ -531,7 +539,7 @@ func Fn_Rep(input string) {
 			if err != nil {
 				fmt.Printf("Error al crear el directorio: %v\n", err)
 				fmt.Println("======FIN REP======")
-				return
+				return "Error al crear el directorio: " + dir
 			}
 		}
 
@@ -554,7 +562,7 @@ func Fn_Rep(input string) {
 		if !mounted {
 			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Open the binary file of the mounted disk
@@ -562,7 +570,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
 		}
 		defer file.Close()
 
@@ -571,7 +579,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("No se pudo leer el MBR desde el archivo.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el MBR desde el archivo."
 		}
 
 		// Find the partition with the given ID
@@ -584,7 +592,7 @@ func Fn_Rep(input string) {
 					} else {
 						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
 						fmt.Println("======FIN REP======")
-						return
+						return "Error: La partición con el ID:" + *id + " no está montada."
 					}
 					break
 				}
@@ -594,7 +602,7 @@ func Fn_Rep(input string) {
 		if index == -1 {
 			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Read the SuperBlock
@@ -602,14 +610,14 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
 			fmt.Println("Error al leer el SuperBloque.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el SuperBloque."
 		}
 
 		// Check the values of the SuperBlock
 		if TemporalSuperBloque.S_inodes_count <= 0 || TemporalSuperBloque.S_bm_inode_start <= 0 {
 			fmt.Println("Valores inválidos en el SuperBloque.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: Valores inválidos en el SuperBloque."
 		}
 
 		// Read the bitmap of inodes
@@ -617,7 +625,7 @@ func Fn_Rep(input string) {
 		if _, err := file.ReadAt(BitMapInode, int64(TemporalSuperBloque.S_bm_inode_start)); err != nil {
 			fmt.Println("No se pudo leer el bitmap de inodos:", err)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el bitmap de inodos."
 		}
 
 		// Create the report file
@@ -625,7 +633,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("No se pudo crear el archivo de reporte:", err)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo crear el archivo de reporte."
 		}
 
 		// Close the file
@@ -654,7 +662,7 @@ func Fn_Rep(input string) {
 			if err != nil {
 				fmt.Printf("Error al crear el directorio: %v\n", err)
 				fmt.Println("======FIN REP======")
-				return
+				return "Error al crear el directorio: " + dir
 			}
 		}
 
@@ -677,7 +685,7 @@ func Fn_Rep(input string) {
 		if !mounted {
 			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Open bin file of the mounted disk
@@ -685,7 +693,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
 		}
 		defer file.Close()
 
@@ -694,7 +702,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("No se pudo leer el MBR desde el archivo.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el MBR desde el archivo."
 		}
 
 		// Find the partition with the given ID
@@ -707,7 +715,7 @@ func Fn_Rep(input string) {
 					} else {
 						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
 						fmt.Println("======FIN REP======")
-						return
+						return "Error: La partición con el ID:" + *id + " no está montada."
 					}
 					break
 				}
@@ -717,7 +725,7 @@ func Fn_Rep(input string) {
 		if index == -1 {
 			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Read the SuperBlock
@@ -725,7 +733,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
 			fmt.Println("Error al leer el SuperBloque.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el SuperBloque."
 		}
 
 		// Read the bitmap of blocks
@@ -733,7 +741,7 @@ func Fn_Rep(input string) {
 		if _, err := file.ReadAt(BitMapBlock, int64(TemporalSuperBloque.S_bm_block_start)); err != nil {
 			fmt.Println("No se pudo leer el bitmap de bloques:", err)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el bitmap de bloques."
 		}
 
 		// Create the report file
@@ -741,7 +749,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("No se pudo crear el archivo de reporte:", err)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo crear el archivo de reporte."
 		}
 		defer SalidaArchivo.Close()
 
@@ -776,7 +784,7 @@ func Fn_Rep(input string) {
 		if !mounted {
 			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Open bin file
@@ -784,7 +792,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
 		}
 		defer file.Close()
 
@@ -793,7 +801,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("No se pudo leer el MBR desde el archivo.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el MBR desde el archivo."
 		}
 
 		// Find the partition with the given ID
@@ -806,7 +814,7 @@ func Fn_Rep(input string) {
 					} else {
 						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
 						fmt.Println("======FIN REP======")
-						return
+						return "Error: La partición con el ID:" + *id + " no está montada."
 					}
 					break
 				}
@@ -816,7 +824,7 @@ func Fn_Rep(input string) {
 		if index == -1 {
 			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Read the SuperBlock
@@ -824,7 +832,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
 			fmt.Println("Error al leer el SuperBloque.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el SuperBloque."
 		}
 
 		// Content of the dot file
@@ -868,7 +876,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("Error al escribir el archivo DOT.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error al escribir el archivo DOT."
 		}
 
 		// Create the directory if it doesn't exist
@@ -878,7 +886,7 @@ func Fn_Rep(input string) {
 			if err != nil {
 				fmt.Printf("Error al crear el directorio: %v\n", err)
 				fmt.Println("======FIN REP======")
-				return
+				return "Error al crear el directorio: " + dir
 			}
 		}
 
@@ -890,131 +898,190 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Println("Error al ejecutar Graphviz.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error al ejecutar Graphviz"
 		}
 
 		fmt.Printf("Reporte de INODE de la partición:%s generado con éxito en la ruta: %s\n", *id, *path)
 		fmt.Println("======FIN REP======")
 
-	/*case "block":
-	mounted := false
-	var diskPath string
-	for _, partitions := range DiskControl.GetMountedPartitions() {
-		for _, partition := range partitions {
-			if partition.ID == *id {
-				mounted = true
-				diskPath = partition.Path
-				break
+	case "block":
+		dir := filepath.Dir(*path)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755)
+			if err != nil {
+				fmt.Printf("Error al crear el directorio: %v\n", err)
+				fmt.Println("======FIN REP======")
+				return "Error al crear el directorio: " + dir
 			}
 		}
-		if mounted {
-			break
-		}
-	}
 
-	if !mounted {
-		fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
-		fmt.Println("======FIN REP======")
-		return
-	}
-
-	// Abrir el archivo binario del disco montado
-	file, err := FileManagement.OpenFile(diskPath)
-	if err != nil {
-		fmt.Printf("Error: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
-		fmt.Println("======FIN REP======")
-		return
-	}
-	defer file.Close()
-
-	// Leer el MBR
-	var TempMBR DiskStruct.MRB
-	if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
-		fmt.Println("Error: No se pudo leer el MBR desde el archivo.")
-		fmt.Println("======FIN REP======")
-		return
-	}
-
-	// Buscar la partición con el ID dado
-	var index int = -1
-	for i := 0; i < 4; i++ {
-		if TempMBR.Partitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.Partitions[i].Id[:]), *id) {
-				if TempMBR.Partitions[i].Status[0] == '1' {
-					index = i
-				} else {
-					fmt.Printf("Error: La partición con el ID:%s no está montada.\n", *id)
-					fmt.Println("======FIN REP======")
-					return
+		// Verify if the partition is mounted
+		mounted := false
+		var diskPath string
+		for _, partitions := range DiskControl.GetMountedPartitions() {
+			for _, partition := range partitions {
+				if partition.ID == *id {
+					mounted = true
+					diskPath = partition.Path
+					break
 				}
+			}
+			if mounted {
 				break
 			}
 		}
-	}
 
-	if index == -1 {
-		fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
-		fmt.Println("======FIN REP======")
-		return
-	}
-
-	// Leer el SuperBloque
-	var TemporalSuperBloque DiskStruct.Superblock
-	if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
-		fmt.Println("Error: No se pudo leer el SuperBloque.")
-		fmt.Println("======FIN REP======")
-		return
-	}
-
-	// Generar el contenido del archivo DOT
-	var dot bytes.Buffer
-	fmt.Fprintln(&dot, "digraph G {")
-	fmt.Fprintln(&dot, "node [shape=plaintext];")
-	fmt.Fprintln(&dot, "fontname=\"Courier New\";")
-	fmt.Fprintln(&dot, "blocksTable [label=<")
-	fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
-	fmt.Fprintln(&dot, "<tr><td bgcolor=\"Mediumslateblue\" colspan='2'>Bloques Utilizados</td></tr>")
-
-	// Leer los bloques utilizados
-	for i := 0; i < int(TemporalSuperBloque.S_blocks_count); i++ {
-		var block DiskStruct.Fileblock
-		offset := int64(TemporalSuperBloque.S_block_start) + int64(i)*int64(TemporalSuperBloque.S_block_size)
-		if err := FileManagement.ReadObject(file, &block, offset); err != nil {
-			fmt.Println("Error al leer el bloque:", err)
-			continue
+		if !mounted {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
-		// Agregar información del bloque al DOT
-		fmt.Fprintf(&dot, "<tr><td>Bloque %d</td><td>%s</td></tr>\n", i, strings.Trim(string(block.B_content[:]), "\x00"))
-	}
+		// Open bin file
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Printf("No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
+		}
+		defer file.Close()
 
-	fmt.Fprintln(&dot, "</table>")
-	fmt.Fprintln(&dot, ">];")
-	fmt.Fprintln(&dot, "}")
+		// Read the MBR
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("No se pudo leer el MBR desde el archivo.")
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo leer el MBR desde el archivo."
+		}
 
-	// Guardar el archivo DOT
-	dotFilePath := strings.TrimSuffix(*path, filepath.Ext(*path)) + ".dot"
-	err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
-	if err != nil {
-		fmt.Println("Error al escribir el archivo DOT.")
+		// Find the partition with the given ID
+		var index int = -1
+		for i := 0; i < 4; i++ {
+			if TempMBR.Partitions[i].Size != 0 {
+				if strings.Contains(string(TempMBR.Partitions[i].Id[:]), *id) {
+					if TempMBR.Partitions[i].Status[0] == '1' {
+						index = i
+					} else {
+						fmt.Printf("La partición con el ID:%s no está montada.\n", *id)
+						fmt.Println("======FIN REP======")
+						return "Error: La partición con el ID:" + *id + " no está montada."
+					}
+					break
+				}
+			}
+		}
+
+		if index == -1 {
+			fmt.Printf("No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return "Error: No se encontró la partición con el ID: " + *id
+		}
+
+		// Read the superblock
+		var TemporalSuperBloque DiskStruct.Superblock
+		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[index].Start)); err != nil {
+			fmt.Println("Error al leer el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo leer el SuperBloque."
+		}
+
+		// Read the bitmap of blocks
+		BitMapBlock := make([]byte, TemporalSuperBloque.S_blocks_count)
+		if _, err := file.ReadAt(BitMapBlock, int64(TemporalSuperBloque.S_bm_block_start)); err != nil {
+			fmt.Println("No se pudo leer el bitmap de bloques:", err)
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo leer el bitmap de bloques."
+		}
+
+		// Create the report file
+		totalBlocks := len(BitMapBlock)
+		usedBlocks := 0
+		unusedBlocks := 0
+
+		// Create the dot file
+		var dot bytes.Buffer
+		fmt.Fprintln(&dot, "digraph G {")
+		fmt.Fprintln(&dot, "node [shape=plaintext];")
+		fmt.Fprintln(&dot, "fontname=\"Courier New\";")
+
+		fmt.Fprintln(&dot, "blockTable [label=<")
+		fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+		fmt.Fprintln(&dot, "<tr><td bgcolor=\"LightBlue\" colspan='2'>BLOCKS</td></tr>")
+
+		// Read the used blocks
+		for i, bit := range BitMapBlock {
+			if bit == 1 { // Show only used blocks
+				usedBlocks++ // Increment the counter of used blocks
+
+				var block DiskStruct.Fileblock
+				offset := int64(TemporalSuperBloque.S_block_start) + int64(i)*int64(TemporalSuperBloque.S_block_size)
+				fmt.Printf("Leyendo bloque %d en offset %d\n", i, offset) // Depuración: Verificar el bloque y el offset
+
+				if err := FileManagement.ReadObject(file, &block, offset); err != nil {
+					fmt.Printf("Error al leer el bloque %d: %v\n", i, err)
+					continue
+				}
+
+				fmt.Printf("Contenido crudo del bloque %d: %v\n", i, block.B_content)
+
+				blockContent := strings.Trim(string(block.B_content[:]), "\x00") // Delete null characters
+				if blockContent == "" {                                          // If the block is empty, skip it
+					continue
+				}
+
+				cleanedContent := ""
+				for _, char := range blockContent {
+					if char >= 32 && char <= 126 {
+						cleanedContent += string(char)
+					}
+				}
+				cleanedContent = strings.TrimLeft(cleanedContent, ".")
+				cleanedContent = strings.ReplaceAll(cleanedContent, "&", "&amp;")
+				cleanedContent = strings.ReplaceAll(cleanedContent, "<", "&lt;")
+				cleanedContent = strings.ReplaceAll(cleanedContent, ">", "&gt;")
+
+				fmt.Fprintf(&dot, "<tr><td>Bloque %d</td><td>%s</td></tr>\n", i, cleanedContent)
+			} else {
+				unusedBlocks++
+			}
+		}
+
+		fmt.Fprintln(&dot, "</table>")
+		fmt.Fprintln(&dot, ">];")
+
+		fmt.Fprintln(&dot, "summaryTable [label=<")
+		fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+		fmt.Fprintln(&dot, "<tr><td bgcolor=\"LightGreen\" colspan='2'>Resumen de Bloques</td></tr>")
+		fmt.Fprintf(&dot, "<tr><td>Total de Bloques</td><td>%d</td></tr>\n", totalBlocks)
+		fmt.Fprintf(&dot, "<tr><td>Bloques Utilizados</td><td>%d</td></tr>\n", usedBlocks)
+		fmt.Fprintf(&dot, "<tr><td>Bloques No Utilizados</td><td>%d</td></tr>\n", unusedBlocks)
+		fmt.Fprintln(&dot, "</table>")
+		fmt.Fprintln(&dot, ">];")
+
+		fmt.Fprintln(&dot, "}")
+
+		dotFilePath := strings.TrimSuffix(*path, filepath.Ext(*path)) + ".dot"
+		err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
+		if err != nil {
+			fmt.Println("Error al escribir el archivo DOT.")
+			fmt.Println("======FIN REP======")
+			return "Error al escribir el archivo DOT."
+		}
+
+		// Generate the report
+		cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", *path)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+		if err != nil {
+			fmt.Println("Error al ejecutar Graphviz.")
+			fmt.Println("======FIN REP======")
+			return "Error al ejecutar Graphviz"
+		}
+
+		fmt.Printf("Reporte de BLOQUES generado con éxito en la ruta: %s\n", *path)
 		fmt.Println("======FIN REP======")
-		return
-	}
 
-	// Generar la imagen con Graphviz
-	cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", *path)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	if err != nil {
-		fmt.Println("Error al ejecutar Graphviz.")
-		fmt.Println("======FIN REP======")
-		return
-	}
-
-	fmt.Printf("Reporte de BLOQUES generado con éxito en la ruta: %s\n", *path)
-	fmt.Println("======FIN REP======")
-	*/
 	case "sb":
 		GenerateSuperblockReport(*id, *path)
 		fmt.Println("======FIN REP======")
@@ -1025,7 +1092,7 @@ func Fn_Rep(input string) {
 		if *pathFileLs == "" {
 			fmt.Println("Error: 'path_file_ls' es obligatorio para el reporte 'file'.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: 'path_file_ls' es obligatorio para el reporte 'file'."
 		}
 
 		// Verify if the partition is mounted
@@ -1047,7 +1114,7 @@ func Fn_Rep(input string) {
 		if !mounted {
 			fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró la partición con el ID: " + *id
 		}
 
 		// Open bin file
@@ -1055,7 +1122,7 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Printf("Error: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
 		}
 		defer file.Close()
 
@@ -1064,7 +1131,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
 			fmt.Println("Error: No se pudo leer el MBR desde el archivo.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el MBR desde el archivo."
 		}
 
 		// Read the SuperBlock
@@ -1072,7 +1139,7 @@ func Fn_Rep(input string) {
 		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[0].Start)); err != nil {
 			fmt.Println("Error al leer el SuperBloque.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el SuperBloque."
 		}
 
 		// Find the file of path_file_ls
@@ -1080,14 +1147,14 @@ func Fn_Rep(input string) {
 		if indexInode == -1 {
 			fmt.Printf("Error: No se encontró el archivo especificado en el path: %s.\n", *pathFileLs)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se encontró el archivo especificado en el path: " + *pathFileLs
 		}
 
 		var crrInode DiskStruct.Inode
 		if err := FileManagement.ReadObject(file, &crrInode, int64(TemporalSuperBloque.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
 			fmt.Println("Error al leer el inodo del archivo.")
 			fmt.Println("======FIN REP======")
-			return
+			return "Error: No se pudo leer el inodo del archivo."
 		}
 
 		// Get content of the file
@@ -1102,16 +1169,175 @@ func Fn_Rep(input string) {
 		if err != nil {
 			fmt.Printf("Error al escribir el archivo de reporte: %s\n", err)
 			fmt.Println("======FIN REP======")
-			return
+			return "Error al escribir el archivo de reporte: " + err.Error()
 		}
 
 		fmt.Printf("Reporte FILE generado exitosamente en la ruta: %s\n", *path)
+		fmt.Println("======FIN REP======")
+
+	case "ls":
+		// Parameter path_file_ls is required
+		if *pathFileLs == "" {
+			fmt.Println("Error: 'path_file_ls' es obligatorio para el reporte 'ls'.")
+			fmt.Println("======FIN REP======")
+			return "Error: 'path_file_ls' es obligatorio para el reporte 'ls'."
+		}
+
+		// Partition must be mounted
+		mounted := false
+		var diskPath string
+		for _, partitions := range DiskControl.GetMountedPartitions() {
+			for _, partition := range partitions {
+				if partition.ID == *id {
+					mounted = true
+					diskPath = partition.Path
+					break
+				}
+			}
+			if mounted {
+				break
+			}
+		}
+
+		if !mounted {
+			fmt.Printf("Error: No se encontró la partición con el ID: %s.\n", *id)
+			fmt.Println("======FIN REP======")
+			return "Error: No se encontró la partición con el ID: " + *id
+		}
+
+		// Open bin file
+		file, err := FileManagement.OpenFile(diskPath)
+		if err != nil {
+			fmt.Printf("Error: No se pudo abrir el archivo en la ruta: %s\n", diskPath)
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo abrir el archivo en la ruta: " + diskPath
+		}
+		defer file.Close()
+
+		// Read the MBR
+		var TempMBR DiskStruct.MRB
+		if err := FileManagement.ReadObject(file, &TempMBR, 0); err != nil {
+			fmt.Println("Error: No se pudo leer el MBR desde el archivo.")
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo leer el MBR desde el archivo."
+		}
+
+		// Read the Superblock
+		var TemporalSuperBloque DiskStruct.Superblock
+		if err := FileManagement.ReadObject(file, &TemporalSuperBloque, int64(TempMBR.Partitions[0].Start)); err != nil {
+			fmt.Println("Error al leer el SuperBloque.")
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo leer el SuperBloque."
+		}
+
+		// Find the inode of path_file_ls
+		indexInode := UserManagement.InitSearch(*pathFileLs, file, TemporalSuperBloque)
+		if indexInode == -1 {
+			fmt.Printf("Error: No se encontró el directorio especificado en el path: %s.\n", *pathFileLs)
+			fmt.Println("======FIN REP======")
+			return "Error: No se encontró el directorio especificado en el path: " + *pathFileLs
+		}
+
+		var crrInode DiskStruct.Inode
+		if err := FileManagement.ReadObject(file, &crrInode, int64(TemporalSuperBloque.S_inode_start+indexInode*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+			fmt.Println("Error al leer el inodo del directorio.")
+			fmt.Println("======FIN REP======")
+			return "Error: No se pudo leer el inodo del directorio."
+		}
+
+		// Content of dot file
+		var dot bytes.Buffer
+		fmt.Fprintln(&dot, "digraph G {")
+		fmt.Fprintln(&dot, "node [shape=plaintext];")
+		fmt.Fprintln(&dot, "fontname=\"Courier New\";")
+		fmt.Fprintln(&dot, "lsTable [label=<")
+		fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+		fmt.Fprintln(&dot, "<tr><td bgcolor=\"PowderBlue\" colspan='7'>Reporte LS</td></tr>")
+		fmt.Fprintln(&dot, "<tr><td>Permisos</td><td>Propietario</td><td>Grupo</td><td>Tamaño (en bytes) </td><td>Fecha Modificación</td><td>Nombre</td></tr>")
+
+		// Read the blocks of files and dir
+		for _, block := range crrInode.I_block {
+			if block != -1 {
+				var folderBlock DiskStruct.Folderblock
+				if err := FileManagement.ReadObject(file, &folderBlock, int64(TemporalSuperBloque.S_block_start+block*int32(binary.Size(DiskStruct.Folderblock{})))); err != nil {
+					fmt.Println("Error al leer el bloque de carpeta:", err)
+					continue
+				}
+
+				for _, folder := range folderBlock.B_content {
+					if folder.B_inodo != -1 {
+						var inode DiskStruct.Inode
+						if err := FileManagement.ReadObject(file, &inode, int64(TemporalSuperBloque.S_inode_start+folder.B_inodo*int32(binary.Size(DiskStruct.Inode{})))); err != nil {
+							fmt.Println("Error al leer el inodo:", err)
+							continue
+						}
+
+						nombre := strings.Trim(string(folder.B_name[:]), "\x00")
+						if nombre == "" { // Name is empty
+							continue
+						}
+
+						// Get the details of files and directories
+						propietario := GetUserNameByID(int(inode.I_uid))
+						grupo := GetGroupNameByID(int(inode.I_gid))
+
+						permisos := string(inode.I_perm[:])
+						tamaño := inode.I_size
+						fechaMod := string(inode.I_mtime[:])
+
+						fmt.Fprintf(&dot, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>\n",
+							permisos, propietario, grupo, tamaño, fechaMod, nombre)
+					}
+				}
+			}
+		}
+
+		fmt.Fprintln(&dot, "</table>")
+		fmt.Fprintln(&dot, ">];")
+		fmt.Fprintln(&dot, "}")
+
+		dotFilePath := strings.TrimSuffix(*path, filepath.Ext(*path)) + ".dot"
+		err = os.WriteFile(dotFilePath, dot.Bytes(), 0644)
+		if err != nil {
+			fmt.Println("Error al escribir el archivo DOT.")
+			fmt.Println("======FIN REP======")
+			return "Error al escribir el archivo DOT."
+		}
+
+		// Generate the report
+		cmd := exec.Command("dot", "-Tjpg", dotFilePath, "-o", *path)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+		if err != nil {
+			fmt.Println("Error al ejecutar Graphviz.")
+			fmt.Println("======FIN REP======")
+			return "Error al ejecutar Graphviz"
+		}
+
+		fmt.Printf("Reporte LS generado con éxito en la ruta: %s\n", *path)
 		fmt.Println("======FIN REP======")
 
 	default:
 		fmt.Println("Error: Tipo de reporte no válido.")
 		fmt.Println("======FIN REP======")
 	}
+	fmt.Println("======FIN REP======")
+	return "Reporte generado con éxito en la ruta: " + *path
+}
+
+func GetUserNameByID(userID int) string {
+	if userID == 1 {
+		return "root"
+	}
+	return "unknown"
+}
+
+func GetGroupNameByID(groupID int) string {
+	if groupID == 1 {
+		return "root"
+	}
+	return "unknown"
 }
 
 func fn_login(input string) {

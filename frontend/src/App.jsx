@@ -15,9 +15,10 @@ function App() {
 
         // Ignore empty lines
         if (trimmedCommand === "") {
+          results.push(""); // Add an empty line to the results
           continue; // Skip processing this line
         }
-  
+
         // Check if the line is a comment
         if (trimmedCommand.startsWith("#") || trimmedCommand.startsWith("/")) {
           results.push(trimmedCommand); // Add the comment directly to the results
@@ -53,7 +54,7 @@ function App() {
             console.log("Lista de particiones procesada:", partitionList);
 
             if (!results.some((res) => res.includes("Particiones montadas"))) {
-              results.push(`===============================================\nComando: ${command}\n${partitionList}===============================================\n`);
+              results.push(`======================================================\nComando: ${command}\n${partitionList}======================================================\n`);
             }
           } catch (error) {
             console.error("Error al ejecutar el comando 'mounted':", error);
@@ -73,23 +74,30 @@ function App() {
         } else if (command.toLowerCase().startsWith("mkdisk")) {
           let size = null, unit = "m", fit = "ff", path = "";
           let errors = [];
-
-          // Regular expression to parse parameters with spaces inside quotes
+        
+          // List of valid parameters
+          const validParams = ["-size", "-unit", "-fit", "-path"];
+        
+          // Regular expression to match parameters
           const paramRegex = /(-\w+=("[^"]*"|[^\s]+))/g;
           const matches = command.match(paramRegex);
-
+        
           if (matches) {
             matches.forEach(param => {
               const [key, value] = param.split("=");
-              const lowerKey = key.toLowerCase(); // Make the key case-insensitive
-
+              const lowerKey = key.toLowerCase(); 
+        
+              if (!validParams.includes(lowerKey)) {
+                errors.push(`Parámetro no reconocido: ${lowerKey}`);
+              }
+        
               if (lowerKey === "-size") size = parseInt(value);
               if (lowerKey === "-unit") unit = value.toLowerCase();
               if (lowerKey === "-fit") fit = value.toLowerCase();
-              if (lowerKey === "-path") path = value.replace(/"/g, ''); // Remove quotes
+              if (lowerKey === "-path") path = value.replace(/"/g, ''); // Eliminar comillas
             });
           }
-
+        
           // Validate required parameters
           if (size === null || isNaN(size) || size <= 0) {
             errors.push("El parámetro '-size' es obligatorio y debe ser mayor a 0.");
@@ -104,14 +112,13 @@ function App() {
           if (fit !== "ff" && fit !== "bf" && fit !== "wf") {
             errors.push("El parámetro '-fit' debe ser 'ff', 'bf' o 'wf'.");
           }
-
-          // If there are errors, show them and skip execution
+        
+          // If errors are found, add them to the results and skip this command
           if (errors.length > 0) {
-            results.push(`===============================================\nComando: ${command}\nErrores:\n- ${errors.join("\n- ")}\n===============================================\n`);
-            continue;
+            results.push(`======================================================\nComando: ${command}\nErrores:\n- ${errors.join("\n- ")}\n======================================================\n`);
+            continue; // Stop processing this command
           }
-
-          // Set request body and endpoint for mkdisk
+        
           requestBody = { size, unit, fit, path };
           endpoint = "mkdisk";
 
@@ -141,14 +148,14 @@ function App() {
           endpoint = "fdisk";
         
         } else if (command.startsWith("login")) {
-          let user = "", password = "", id="";
+          let user = "", pass = "", id="";
           params.forEach(param => {
             if (param.startsWith("-user=")) user = param.split("=")[1];
-            if (param.startsWith("-password=")) password = param.split("=")[1];
+            if (param.startsWith("-pass=")) pass = param.split("=")[1];
             if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
           });
         
-          requestBody = { user, password, id };
+          requestBody = { user, password: pass, id };
           endpoint = "login";
         
         } else if (command.startsWith("mkfs")) {
@@ -167,11 +174,15 @@ function App() {
         
         } else if (command.startsWith("rep")) {
           let path = "", name = "", id = "", pathFileLs = ""; 
+        
           params.forEach(param => {
-            if (param.startsWith("-path=")) path = param.split("=")[1].replace(/"/g, '');
-            if (param.startsWith("-name=")) name = param.split("=")[1].replace(/"/g, '');
-            if (param.startsWith("-id=")) id = param.split("=")[1].toLowerCase();
-            if (param.startsWith("-path_file_ls=")) pathFileLs = param.split("=")[1].replace(/"/g, '');
+            const [key, value] = param.split("=");
+            const normalizedKey = key.toLowerCase(); // Convertir el nombre del parámetro a minúsculas
+        
+            if (normalizedKey === "-path") path = value.replace(/"/g, '');
+            if (normalizedKey === "-name") name = value.replace(/"/g, '');
+            if (normalizedKey === "-id") id = value.toLowerCase();
+            if (normalizedKey === "-path_file_ls") pathFileLs = value.replace(/"/g, '');
           });
         
           requestBody = { path, name, id, pathFileLs };
@@ -327,25 +338,28 @@ function App() {
           endpoint = "mkdir";
 
         } else {
-          results.push(`===============================================\nComando no reconocido: ${command}\n===============================================\n`);
+          results.push(`======================================================\nComando no reconocido: ${command}\n======================================================\n`);
           continue;
         }
   
         if (endpoint) {
-          const method = Object.keys(requestBody).length > 0 ? "POST" : "GET"; // If body is not empty, use POST, otherwise GET
-          const options = {
-            method,
-            headers: { "Content-Type": "application/json" },
-            ...(method === "POST" && { body: JSON.stringify(requestBody) }) // Add body if POST
-          };
-        
-          console.log("Enviando solicitud a:", endpoint);
-          console.log("Cuerpo de la solicitud:", requestBody); 
-        
-          const response = await fetch(`http://localhost:8080/${endpoint}`, options);
-          const text = await response.text();
-          console.log("Respuesta del backend:", text);
-          results.push(`===============================================\nComando: ${command}\nRespuesta: ${text}\n===============================================\n`);
+          try {
+            const response = await fetch(`http://localhost:8080/${endpoint}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              results.push(`======================================================\nError: ${errorText}\n======================================================\n\n`);
+            } else {
+              const text = await response.text();
+              results.push(`======================================================\nComando: ${command}\n\nRespuesta: ${text}\n======================================================\n\n`);
+            }
+          } catch (error) {
+            results.push(`======================================================\nError al comunicarse con el servidor: ${error.message}\n======================================================\n\n`);
+          }
         }
       }
 
@@ -353,7 +367,7 @@ function App() {
       setOutput(results.join("\n"));
 
     } catch (error) {
-      setOutput(`Error al ejecutar comandos: ${error.message}`);
+      setOutput(`======================================================\nError al ejecutar comandos: ${error.message}\n======================================================\n\n`);
     }
   };
   
